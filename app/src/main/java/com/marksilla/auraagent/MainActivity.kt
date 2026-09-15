@@ -1,6 +1,7 @@
 package com.marksilla.auraagent
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -22,28 +23,36 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContent {
-            AuraApp()
+            AuraApp(context = this)
         }
     }
 }
 
 @Composable
-fun AuraApp() {
-    val context = LocalContext.current
+fun AuraApp(context: Context) {
 
-    var command by remember { mutableStateOf("") }
-    var dark by remember { mutableStateOf(true) }
-    var listening by remember { mutableStateOf(false) }
+    var command by remember {
+        mutableStateOf("")
+    }
+
+    var dark by remember {
+        mutableStateOf(true)
+    }
+
+    var listening by remember {
+        mutableStateOf(false)
+    }
 
     var recent by remember {
         mutableStateOf(
@@ -57,19 +66,22 @@ fun AuraApp() {
 
     val permissionLauncher =
         rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestPermission()
-        ) { }
+            contract = ActivityResultContracts.RequestPermission()
+        ) {
+            // Permission result handled here.
+        }
 
     val voiceLauncher =
         rememberLauncherForActivityResult(
-            ActivityResultContracts.StartActivityForResult()
+            contract = ActivityResultContracts.StartActivityForResult()
         ) { result ->
 
-            val text = result.data
-                ?.getStringArrayListExtra(
-                    "android.speech.extra.RESULTS"
-                )
-                ?.firstOrNull()
+            val text =
+                result.data
+                    ?.getStringArrayListExtra(
+                        "android.speech.extra.RESULTS"
+                    )
+                    ?.firstOrNull()
 
             if (!text.isNullOrBlank()) {
                 command = text
@@ -80,29 +92,33 @@ fun AuraApp() {
         }
 
     val bg =
-        if (dark)
+        if (dark) {
             Color(0xFF0B0D12)
-        else
+        } else {
             Color(0xFFF4F6F8)
+        }
 
     val fg =
-        if (dark)
+        if (dark) {
             Color.White
-        else
+        } else {
             Color(0xFF111318)
+        }
 
     val card =
-        if (dark)
+        if (dark) {
             Color(0xFF151922)
-        else
+        } else {
             Color.White
+        }
 
     MaterialTheme(
         colorScheme =
-            if (dark)
+            if (dark) {
                 darkColorScheme()
-            else
+            } else {
                 lightColorScheme()
+            }
     ) {
 
         Surface(
@@ -111,8 +127,10 @@ fun AuraApp() {
         ) {
 
             LazyColumn(
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(20.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp)
+                verticalArrangement =
+                    Arrangement.spacedBy(18.dp)
             ) {
 
                 item {
@@ -131,12 +149,15 @@ fun AuraApp() {
                                 text = "AURA Agent",
                                 color = fg,
                                 fontSize = 25.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight =
+                                    FontWeight.Bold
                             )
 
                             Text(
-                                text = "Your phone, ready to help.",
-                                color = fg.copy(alpha = .6f),
+                                text =
+                                    "Your phone, ready to help.",
+                                color =
+                                    fg.copy(alpha = 0.6f),
                                 fontSize = 13.sp
                             )
                         }
@@ -148,7 +169,12 @@ fun AuraApp() {
                         ) {
 
                             Text(
-                                text = if (dark) "☀" else "☾",
+                                text =
+                                    if (dark) {
+                                        "☀"
+                                    } else {
+                                        "☾"
+                                    },
                                 fontSize = 22.sp
                             )
                         }
@@ -156,6 +182,7 @@ fun AuraApp() {
                 }
 
                 item {
+
                     OrbCard(
                         listening = listening,
                         card = card,
@@ -170,9 +197,12 @@ fun AuraApp() {
                         onValueChange = {
                             command = it
                         },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier =
+                            Modifier.fillMaxWidth(),
                         placeholder = {
-                            Text("Tell AURA what to do…")
+                            Text(
+                                "Tell AURA what to do…"
+                            )
                         },
                         singleLine = true,
                         trailingIcon = {
@@ -184,7 +214,7 @@ fun AuraApp() {
 
                                         recent =
                                             listOf(command) +
-                                            recent.take(4)
+                                                recent.take(4)
 
                                         command = ""
                                     }
@@ -206,9 +236,10 @@ fun AuraApp() {
                 item {
 
                     Button(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
                         shape =
                             RoundedCornerShape(18.dp),
                         onClick = {
@@ -222,6 +253,8 @@ fun AuraApp() {
                                 permissionLauncher.launch(
                                     Manifest.permission.RECORD_AUDIO
                                 )
+
+                                return@Button
                             }
 
                             val intent =
@@ -248,10 +281,11 @@ fun AuraApp() {
 
                         Text(
                             text =
-                                if (listening)
+                                if (listening) {
                                     "Listening…"
-                                else
-                                    "🎙  Talk to AURA",
+                                } else {
+                                    "🎙  Talk to AURA"
+                                },
                             fontSize = 16.sp
                         )
                     }
@@ -262,7 +296,8 @@ fun AuraApp() {
                     Text(
                         text = "Quick actions",
                         color = fg,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight =
+                            FontWeight.Bold,
                         fontSize = 18.sp
                     )
                 }
@@ -270,7 +305,8 @@ fun AuraApp() {
                 item {
 
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier =
+                            Modifier.fillMaxWidth(),
                         horizontalArrangement =
                             Arrangement.spacedBy(10.dp)
                     ) {
@@ -341,7 +377,8 @@ fun AuraApp() {
                     Text(
                         text = "Recent commands",
                         color = fg,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight =
+                            FontWeight.Bold,
                         fontSize = 18.sp
                     )
                 }
@@ -349,14 +386,14 @@ fun AuraApp() {
                 items(recent.size) { index ->
 
                     Card(
+                        modifier =
+                            Modifier.fillMaxWidth(),
                         colors =
                             CardDefaults.cardColors(
                                 containerColor = card
                             ),
                         shape =
-                            RoundedCornerShape(16.dp),
-                        modifier =
-                            Modifier.fillMaxWidth()
+                            RoundedCornerShape(16.dp)
                     ) {
 
                         Row(
@@ -417,14 +454,14 @@ fun OrbCard(
         )
 
     Card(
+        modifier =
+            Modifier.fillMaxWidth(),
         shape =
             RoundedCornerShape(28.dp),
         colors =
             CardDefaults.cardColors(
                 containerColor = card
-            ),
-        modifier =
-            Modifier.fillMaxWidth()
+            )
     ) {
 
         Column(
@@ -444,11 +481,12 @@ fun OrbCard(
                         .background(
                             brush =
                                 Brush.radialGradient(
-                                    listOf(
-                                        Color(0xFF65D6A3),
-                                        Color(0xFF3A6FF7),
-                                        Color.Transparent
-                                    )
+                                    colors =
+                                        listOf(
+                                            Color(0xFF65D6A3),
+                                            Color(0xFF3A6FF7),
+                                            Color.Transparent
+                                        )
                                 ),
                             shape = CircleShape
                         ),
@@ -458,10 +496,11 @@ fun OrbCard(
 
                 Text(
                     text =
-                        if (listening)
+                        if (listening) {
                             "●"
-                        else
-                            "✦",
+                        } else {
+                            "✦"
+                        },
                     color = Color.White,
                     fontSize = 30.sp
                 )
@@ -474,10 +513,11 @@ fun OrbCard(
 
             Text(
                 text =
-                    if (listening)
+                    if (listening) {
                         "Listening"
-                    else
-                        "Ready",
+                    } else {
+                        "Ready"
+                    },
                 color = fg,
                 fontWeight =
                     FontWeight.Bold,
@@ -485,9 +525,10 @@ fun OrbCard(
             )
 
             Text(
-                text = "What can I do for you?",
+                text =
+                    "What can I do for you?",
                 color =
-                    fg.copy(alpha = .55f)
+                    fg.copy(alpha = 0.55f)
             )
         }
     }
@@ -516,7 +557,8 @@ fun RowScope.Quick(
     ) {
 
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier =
+                Modifier.fillMaxSize(),
             contentAlignment =
                 Alignment.Center
         ) {
