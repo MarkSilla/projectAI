@@ -59,6 +59,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -3432,7 +3433,7 @@ private fun HomeScreen(
                                     if (auraThinking) {
                                         "AURA is responding..."
                                     } else {
-                                        "Ask AURA or use @web your question"
+                                        "Ask AURA or @web query"
                                     }
                                 )
                             },
@@ -3451,18 +3452,15 @@ private fun HomeScreen(
                                 )
                         )
 
-                        Button(
+                        IconButton(
                             onClick = onSendChat,
-                            shape = RoundedCornerShape(18.dp),
                             enabled = chatInput.isNotBlank() && !auraThinking
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Send,
-                                contentDescription = null,
+                                contentDescription = "Send",
                                 modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Send")
                         }
                     }
                 }

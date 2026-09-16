@@ -20,9 +20,9 @@ internal data class WebSearchResponse(
 )
 
 internal class WebSearchManager(
-    private val fetch: (String) -> String = ::fetchSearchPage,
     private val fetchImages: (String) -> String = ::fetchImageSearchPage,
-    private val includeRelatedImages: Boolean = false
+    private val includeRelatedImages: Boolean = false,
+    private val fetch: (String) -> String = ::fetchSearchPage
 ) {
     fun search(query: String, limit: Int = 5): List<WebSearchResult> {
         return searchDetailed(query, limit).results
