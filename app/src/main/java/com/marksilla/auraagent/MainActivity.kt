@@ -34,7 +34,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            AuraApp(context = this)
+            AuraApp(context = this@MainActivity)
         }
     }
 }
@@ -54,6 +54,10 @@ fun AuraApp(context: Context) {
         mutableStateOf(false)
     }
 
+    var status by remember {
+        mutableStateOf("Ready")
+    }
+
     var recent by remember {
         mutableStateOf(
             listOf(
@@ -62,6 +66,10 @@ fun AuraApp(context: Context) {
                 "Open Settings"
             )
         )
+    }
+
+    val installedApps = remember {
+        getInstalledApps(context)
     }
 
     val permissionLauncher =
@@ -86,6 +94,7 @@ fun AuraApp(context: Context) {
             if (!text.isNullOrBlank()) {
                 command = text
                 recent = listOf(text) + recent.take(4)
+                status = "Command received"
             }
 
             listening = false
@@ -112,6 +121,62 @@ fun AuraApp(context: Context) {
             Color.White
         }
 
+    fun executeCommand() {
+
+        val input = command.trim()
+
+        if (input.isBlank()) {
+            status = "Enter a command"
+            return
+        }
+
+        val appName = extractOpenCommand(input)
+
+        if (appName != null) {
+
+            val app = findApp(
+                installedApps,
+                appName
+            )
+
+            if (app != null) {
+
+                val opened =
+                    openApp(
+                        context,
+                        app
+                    )
+
+                if (opened) {
+                    status = "Opening ${app.name}"
+
+                    recent =
+                        listOf(
+                            "Open ${app.name}"
+                        ) + recent.take(4)
+
+                    command = ""
+                } else {
+                    status =
+                        "Cannot open ${app.name}"
+                }
+
+            } else {
+
+                status =
+                    "App \"$appName\" was not found"
+            }
+
+        } else {
+
+            status =
+                "Try: Open Facebook"
+
+            recent =
+                listOf(input) + recent.take(4)
+        }
+    }
+
     MaterialTheme(
         colorScheme =
             if (dark) {
@@ -136,7 +201,8 @@ fun AuraApp(context: Context) {
                 item {
 
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier =
+                            Modifier.fillMaxWidth(),
                         horizontalArrangement =
                             Arrangement.SpaceBetween,
                         verticalAlignment =
@@ -186,7 +252,8 @@ fun AuraApp(context: Context) {
                     OrbCard(
                         listening = listening,
                         card = card,
-                        fg = fg
+                        fg = fg,
+                        status = status
                     )
                 }
 
@@ -201,7 +268,7 @@ fun AuraApp(context: Context) {
                             Modifier.fillMaxWidth(),
                         placeholder = {
                             Text(
-                                "Tell AURA what to do…"
+                                "Try: Open Facebook"
                             )
                         },
                         singleLine = true,
@@ -209,15 +276,7 @@ fun AuraApp(context: Context) {
 
                             TextButton(
                                 onClick = {
-
-                                    if (command.isNotBlank()) {
-
-                                        recent =
-                                            listOf(command) +
-                                                recent.take(4)
-
-                                        command = ""
-                                    }
+                                    executeCommand()
                                 }
                             ) {
 
@@ -312,6 +371,15 @@ fun AuraApp(context: Context) {
                     ) {
 
                         Quick(
+                            title = "Apps",
+                            card = card,
+                            fg = fg
+                        ) {
+                            status =
+                                "${installedApps.size} apps found"
+                        }
+
+                        Quick(
                             title = "Files",
                             card = card,
                             fg = fg
@@ -321,7 +389,6 @@ fun AuraApp(context: Context) {
                                 Intent(
                                     Intent.ACTION_OPEN_DOCUMENT
                                 ).apply {
-
                                     type = "*/*"
 
                                     addCategory(
@@ -345,19 +412,6 @@ fun AuraApp(context: Context) {
                         }
 
                         Quick(
-                            title = "Camera",
-                            card = card,
-                            fg = fg
-                        ) {
-
-                            context.startActivity(
-                                Intent(
-                                    "android.media.action.IMAGE_CAPTURE"
-                                )
-                            )
-                        }
-
-                        Quick(
                             title = "Downloads",
                             card = card,
                             fg = fg
@@ -368,6 +422,116 @@ fun AuraApp(context: Context) {
                                     "android.intent.action.VIEW_DOWNLOADS"
                                 )
                             )
+                        }
+                    }
+                }
+
+                item {
+
+                    Text(
+                        text =
+                            "Installed apps (${installedApps.size})",
+                        color = fg,
+                        fontWeight =
+                            FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                }
+
+                items(
+                    minOf(installedApps.size, 20)
+                ) { index ->
+
+                    val app =
+                        installedApps[index]
+
+                    Card(
+                        modifier =
+                            Modifier.fillMaxWidth(),
+                        onClick = {
+
+                            if (
+                                openApp(
+                                    context,
+                                    app
+                                )
+                            ) {
+
+                                status =
+                                    "Opening ${app.name}"
+
+                                recent =
+                                    listOf(
+                                        "Open ${app.name}"
+                                    ) + recent.take(4)
+                            }
+                        },
+                        colors =
+                            CardDefaults.cardColors(
+                                containerColor = card
+                            ),
+                        shape =
+                            RoundedCornerShape(16.dp)
+                    ) {
+
+                        Row(
+                            modifier =
+                                Modifier.padding(16.dp),
+                            verticalAlignment =
+                                Alignment.CenterVertically
+                        ) {
+
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .size(42.dp)
+                                        .background(
+                                            Color(
+                                                0xFF65D6A3
+                                            ),
+                                            CircleShape
+                                        ),
+                                contentAlignment =
+                                    Alignment.Center
+                            ) {
+
+                                Text(
+                                    text =
+                                        app.name
+                                            .firstOrNull()
+                                            ?.uppercase()
+                                            ?: "?",
+                                    color =
+                                        Color.Black,
+                                    fontWeight =
+                                        FontWeight.Bold
+                                )
+                            }
+
+                            Spacer(
+                                modifier =
+                                    Modifier.width(12.dp)
+                            )
+
+                            Column {
+
+                                Text(
+                                    text = app.name,
+                                    color = fg,
+                                    fontWeight =
+                                        FontWeight.SemiBold
+                                )
+
+                                Text(
+                                    text =
+                                        app.packageName,
+                                    color =
+                                        fg.copy(
+                                            alpha = 0.5f
+                                        ),
+                                    fontSize = 11.sp
+                                )
+                            }
                         }
                     }
                 }
@@ -431,7 +595,8 @@ fun AuraApp(context: Context) {
 fun OrbCard(
     listening: Boolean,
     card: Color,
-    fg: Color
+    fg: Color,
+    status: String
 ) {
 
     val infiniteTransition =
@@ -516,7 +681,7 @@ fun OrbCard(
                     if (listening) {
                         "Listening"
                     } else {
-                        "Ready"
+                        status
                     },
                 color = fg,
                 fontWeight =
