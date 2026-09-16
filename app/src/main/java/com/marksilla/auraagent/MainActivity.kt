@@ -331,7 +331,7 @@ internal fun generateAssistantReply(
                 }
 
             isReviewRequest || normalized.contains("read") ->
-                "I can review the document and give you a concise, professional summary with key findings and action points."
+                "I can review the document and give you a concise, professional summary with key points, risks, and action items."
 
             normalized.contains("settings") || normalized.contains("brightness") || normalized.contains("volume") || normalized.contains("wifi") || normalized.contains("bluetooth") || normalized.contains("alarm") ->
                 "I can handle that system setting for you and keep the workflow simple and controlled."

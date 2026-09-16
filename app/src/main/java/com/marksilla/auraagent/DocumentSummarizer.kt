@@ -93,7 +93,7 @@ fun summarizeDocumentText(
 
     val words = extractWords(text)
 
-    if (words.size < 35) {
+    if (words.size < 25) {
         return null
     }
 
