@@ -39,7 +39,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -1449,10 +1449,13 @@ fun AuraApp(
                                                 )
                                             saveChatMemory(context, conversationMemory)
                                             chatMessages =
-                                                chatMessages + userMessage + ChatMessage(
-                                                    id = System.currentTimeMillis() + 1L,
-                                                    role = ChatRole.ASSISTANT,
-                                                    text = confirmReply
+                                                chatMessages + listOf(
+                                                    userMessage,
+                                                    ChatMessage(
+                                                        id = System.currentTimeMillis() + 1L,
+                                                        role = ChatRole.ASSISTANT,
+                                                        text = confirmReply
+                                                    )
                                                 )
                                         }
 
@@ -1465,10 +1468,13 @@ fun AuraApp(
                                                 )
                                             saveChatMemory(context, conversationMemory)
                                             chatMessages =
-                                                chatMessages + userMessage + ChatMessage(
-                                                    id = System.currentTimeMillis() + 1L,
-                                                    role = ChatRole.ASSISTANT,
-                                                    text = replyText
+                                                chatMessages + listOf(
+                                                    userMessage,
+                                                    ChatMessage(
+                                                        id = System.currentTimeMillis() + 1L,
+                                                        role = ChatRole.ASSISTANT,
+                                                        text = replyText
+                                                    )
                                                 )
                                         }
                                     }
