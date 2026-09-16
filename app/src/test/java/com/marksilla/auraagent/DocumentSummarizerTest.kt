@@ -42,6 +42,7 @@ class DocumentSummarizerTest {
         assertTrue(summary.recommendations.isNotEmpty())
         assertTrue(summary.overallAssessment.isNotBlank())
         assertTrue(summary.confidenceScore in 35..98)
+        assertTrue(summary.actionDetails.isNotEmpty())
     }
 
     @Test
@@ -107,7 +108,15 @@ class DocumentSummarizerTest {
                 keywords = listOf("study", "reviewer"),
                 executiveSummary = "The document covers the main study findings.",
                 overallAssessment = "Stable review: the main findings are coherent and easy to follow.",
-                confidenceScore = 84
+                confidenceScore = 84,
+                actionDetails = listOf(
+                    ReviewAction(
+                        action = "Submit the reviewer.",
+                        owner = "Study team",
+                        deadline = "Friday",
+                        priority = "High"
+                    )
+                )
             )
 
         val markdown = formatReviewerMarkdown(summary)
@@ -116,11 +125,82 @@ class DocumentSummarizerTest {
         assertTrue(markdown.contains("## Key Points"))
         assertTrue(markdown.contains("## Executive Summary"))
         assertTrue(markdown.contains("## Overall Assessment"))
+        assertTrue(markdown.contains("## Action Details"))
         assertTrue(markdown.contains("- Focus on the main idea."))
         assertEquals(
             "Study Notes Reviewer.md",
             suggestedReviewerFileName(summary.title)
         )
+    }
+
+    @Test
+    fun linksReviewFindingsToDocumentPages() {
+        val summary =
+            summarizeDocumentText(
+                title = "Report.pdf",
+                rawText =
+                    "The report identifies a critical budget risk and recommends immediate review. " +
+                        "The team should approve the corrective action before the deadline. " +
+                        "Additional evidence confirms the issue affects the project timeline.",
+                pages = listOf(
+                    DocumentPage(
+                        pageNumber = 1,
+                        text = "The report identifies a critical budget risk and recommends immediate review."
+                    ),
+                    DocumentPage(
+                        pageNumber = 2,
+                        text = "The team should approve the corrective action before the deadline."
+                    )
+                )
+            )
+
+        assertNotNull(summary)
+        requireNotNull(summary)
+        assertTrue(summary.evidence.isNotEmpty())
+        assertTrue(summary.evidence.all { it.pageNumber in 1..2 })
+        assertTrue(summary.evidence.all { it.sourceSentence.isNotBlank() })
+        assertTrue(summary.evidence.all { it.confidenceScore in 60..98 })
+    }
+
+    @Test
+    fun extractsActionOwnerDeadlineAndPriority() {
+        val summary =
+            summarizeDocumentText(
+                title = "Action Report.txt",
+                rawText =
+                    "The project review identifies a budget risk. " +
+                        "The action is assigned to Maria Santos and must be completed by Friday. " +
+                        "The team should review the evidence before approval.",
+                options = SummaryOptions(mode = ReviewMode.ACTIONS)
+            )
+
+        assertNotNull(summary)
+        requireNotNull(summary)
+        val action = summary.actionDetails.firstOrNull()
+        assertNotNull(action)
+        requireNotNull(action)
+        assertEquals("Maria Santos", action.owner)
+        assertTrue(action.deadline.orEmpty().contains("Friday", ignoreCase = true))
+        assertEquals("High", action.priority)
+    }
+
+    @Test
+    fun extractsNumericAndRelativeDeadlines() {
+        val summary =
+            summarizeDocumentText(
+                title = "Deadlines.txt",
+                rawText =
+                    "The team must submit the report by 09/30/2026. " +
+                        "The reviewer should complete approval by next Friday. " +
+                        "The owner must archive the evidence before October 5, 2026."
+            )
+
+        assertNotNull(summary)
+        requireNotNull(summary)
+        val deadlines = summary.actionDetails.mapNotNull { it.deadline }
+        assertTrue(deadlines.any { it.contains("09/30/2026") })
+        assertTrue(deadlines.any { it.contains("next Friday", ignoreCase = true) })
+        assertTrue(deadlines.any { it.contains("October 5, 2026", ignoreCase = true) })
     }
 
     @Test

@@ -159,6 +159,23 @@ class WakeWordDetectorTest {
     }
 
     @Test
+    fun returnsMultipleCandidatesForGenericChatRequest() {
+        val apps =
+            listOf(
+                InstalledApp("Messenger", "com.facebook.orca"),
+                InstalledApp("WhatsApp", "com.whatsapp"),
+                InstalledApp("YouTube", "com.google.android.youtube")
+            )
+
+        val candidates = findAppCandidates(apps, "Open a chat app")
+
+        assertEquals(
+            listOf("Messenger", "WhatsApp"),
+            candidates.map { it.name }
+        )
+    }
+
+    @Test
     fun detectsDocumentReviewCommands() {
         assertTrue(isDocumentReviewCommand("Summarize document"))
         assertTrue(isDocumentReviewCommand("Can you review this document?"))

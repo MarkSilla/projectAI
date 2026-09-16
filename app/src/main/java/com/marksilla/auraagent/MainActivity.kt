@@ -84,7 +84,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -136,12 +138,34 @@ private enum class ChatRole {
     ASSISTANT
 }
 
+private enum class AiMode(
+    val label: String
+) {
+    OFFLINE("Offline"),
+    ONLINE("Online")
+}
+
 private data class ChatMessage(
     val id: Long,
     val role: ChatRole,
     val text: String,
     val result: ChatResult? = null
 )
+
+private fun isAppOpenRequest(input: String): Boolean {
+    val normalized = input.lowercase(Locale.US)
+    return listOf(
+        "open",
+        "launch",
+        "start",
+        "run",
+        "buksan",
+        "paki open",
+        "paki buksan",
+        "pasok",
+        "punta"
+    ).any { normalized.contains(it) }
+}
 
 private enum class ChatResultTone {
     SUCCESS,
@@ -167,6 +191,41 @@ internal fun generateAssistantReply(
     }
 
     val normalized = trimmed.lowercase(Locale.US)
+    val hasAppTarget =
+        listOf(
+            "facebook",
+            "messenger",
+            "whatsapp",
+            "instagram",
+            "youtube",
+            "chrome",
+            "gmail",
+            "discord",
+            "settings"
+        ).any { normalized.contains(it) }
+    val isOpenRequest =
+        listOf(
+            "open",
+            "launch",
+            "buksan",
+            "paki open",
+            "paki buksan",
+            "pasok",
+            "punta",
+            "lipat"
+        ).any { normalized.contains(it) }
+    val isReviewRequest =
+        listOf(
+            "review",
+            "summarize",
+            "summary",
+            "document",
+            "pdf",
+            "analyze",
+            "basahin",
+            "i-review",
+            "ireview"
+        ).any { normalized.contains(it) }
     val lastContext =
         recentContext
             .map { it.lowercase(Locale.US) }
@@ -188,6 +247,33 @@ internal fun generateAssistantReply(
             .joinToString(" and ")
             .ifBlank { null }
 
+    val lastAssistantMessage =
+        recentContext
+            .lastOrNull { it.isNotBlank() }
+            ?.lowercase(Locale.US)
+
+    val workFollowUp =
+        normalized.contains("pang-work") ||
+            normalized.contains("pang work") ||
+            normalized.contains("for work") ||
+            normalized == "that one" ||
+            normalized == "yung isa"
+
+    val contextualTarget =
+        if (workFollowUp) {
+            recentContext
+                .asSequence()
+                .map { it.lowercase(Locale.US) }
+                .firstOrNull { context ->
+                    context.contains("messenger") ||
+                        context.contains("gmail") ||
+                        context.contains("slack") ||
+                        context.contains("teams")
+                }
+        } else {
+            null
+        }
+
     val habitReminder =
         if (repeatedTarget != null && repeatedTarget.contains("facebook") && normalized.contains("facebook")) {
             "You often open Facebook, so I can keep it ready as one of your usual quick actions."
@@ -203,10 +289,26 @@ internal fun generateAssistantReply(
 
     val quickReply =
         when {
+            contextualTarget != null ->
+                "For work, I’m guessing ${contextualTarget.substringAfterLast("open ").replaceFirstChar { it.uppercase() }}. Say ‘open it’ to continue, or tell me the app name."
+
+            normalized in setOf("yes", "yeah", "oo", "opo", "sige", "go ahead") &&
+                lastAssistantMessage?.contains("which") == true ->
+                "Tell me which app or file you want me to use, and I’ll continue."
+
+            isOpenRequest && !hasAppTarget ->
+                "Which app should I open? You can say something like ‘open Messenger’ or ‘buksan ang YouTube.’"
+
+            isReviewRequest &&
+                !normalized.contains("file") &&
+                !normalized.contains("pdf") &&
+                !normalized.contains("document") ->
+                "What should I review: a PDF, document, or text file? Choose one and I’ll extract the key points, risks, and actions."
+
             normalized.contains("morning") || normalized.contains("workday") || normalized.contains("focus mode") || normalized.contains("routine") ->
                 "I can set up a focus-friendly morning routine for you: open your priority apps, reduce distractions, and keep your first tasks ready."
 
-            normalized.contains("open") || normalized.contains("launch") || normalized.contains("buksan") || normalized.contains("pasok") || normalized.contains("sakay") || normalized.contains("lipat") ->
+            isOpenRequest ->
                 if (habitReminder != null) {
                     "I can open that for you. ${habitReminder}"
                 } else if (lastContext != null && (lastContext.contains("facebook") || lastContext.contains("messenger") || lastContext.contains("settings"))) {
@@ -227,23 +329,52 @@ internal fun generateAssistantReply(
                     "I can open that app for you and keep the action smooth and direct."
                 }
 
-            normalized.contains("review") || normalized.contains("summarize") || normalized.contains("document") || normalized.contains("analyze") || normalized.contains("read") ->
+            isReviewRequest || normalized.contains("read") ->
                 "I can review the document and give you a concise, professional summary with key findings and action points."
 
             normalized.contains("settings") || normalized.contains("brightness") || normalized.contains("volume") || normalized.contains("wifi") || normalized.contains("bluetooth") || normalized.contains("alarm") ->
                 "I can handle that system setting for you and keep the workflow simple and controlled."
 
-            normalized.contains("chat") || normalized.contains("assistant") || normalized.contains("hello") || normalized.contains("hi") || normalized.contains("hey") ->
-                "I’m here to help. You can ask me to open apps, review files, or adjust settings in a professional workflow."
+            normalized.contains("chat") || normalized.contains("assistant") || normalized.contains("hello") || normalized.contains("hi") || normalized.contains("hey") || normalized.contains("kumusta") || normalized.contains("kamusta") ->
+                "Hi, I’m AURA. I can open apps, review PDFs, find action items, remember favorites, or help with phone settings."
 
             normalized.contains("favorite") || normalized.contains("save") || normalized.contains("remember") ->
                 "I can save that as a preferred action and use it again the next time you ask for it."
 
+            normalized.contains("what can you do") || normalized.contains("ano kaya mo") || normalized.contains("anong kaya mo") ->
+                "I can open apps, review documents, extract deadlines and action items, save favorites, and guide you through phone settings."
+
             else ->
-                "I understand your request and can help you act on it quickly with a clean, focused workflow."
+                "I’m not fully sure what you want yet. Try ‘open Messenger,’ ‘review this PDF,’ or ‘show my settings.’"
         }
 
     return quickReply
+}
+
+private fun suggestedChatReplies(
+    message: ChatMessage
+): List<String> {
+    if (message.role != ChatRole.ASSISTANT) {
+        return emptyList()
+    }
+
+    val text = message.text.lowercase(Locale.US)
+
+    return when {
+        text.contains("which app") ->
+            listOf("Open Messenger", "Open WhatsApp", "Open YouTube")
+
+        text.contains("what should i review") || text.contains("what should i") ->
+            listOf("Review a PDF", "Review a document")
+
+        text.contains("what can you do") || text.contains("i can open apps") ->
+            listOf("Open Messenger", "Review a PDF", "Show settings")
+
+        text.contains("did you mean") ->
+            listOf("Yes", "No")
+
+        else -> emptyList()
+    }
 }
 
 private data class FavoriteAction(
@@ -577,6 +708,11 @@ private data class PendingConfirmation(
     val originalCommand: String
 )
 
+private data class PendingAppChoices(
+    val originalCommand: String,
+    val apps: List<InstalledApp>
+)
+
 @Composable
 fun AuraApp(
     context: Context,
@@ -632,6 +768,13 @@ fun AuraApp(
     var chatInput by remember {
         mutableStateOf("")
     }
+    var aiMode by remember {
+        mutableStateOf(AiMode.OFFLINE)
+    }
+    val onlineAiClient =
+        remember {
+            OnlineAiClient(context.applicationContext)
+        }
     val commandUnderstandingEngine =
         remember {
             AuraCommandUnderstanding(
@@ -649,6 +792,9 @@ fun AuraApp(
     }
     var pendingConfirmation by remember {
         mutableStateOf<PendingConfirmation?>(null)
+    }
+    var pendingAppChoices by remember {
+        mutableStateOf<PendingAppChoices?>(null)
     }
     var chatMessages by remember {
         mutableStateOf(
@@ -707,6 +853,12 @@ fun AuraApp(
     }
     var documentSummary by remember {
         mutableStateOf<DocumentSummary?>(null)
+    }
+    var documentContent by remember {
+        mutableStateOf<DocumentText?>(null)
+    }
+    var reviewMode by remember {
+        mutableStateOf(ReviewMode.GENERAL)
     }
     var documentError by remember {
         mutableStateOf<String?>(null)
@@ -1032,12 +1184,16 @@ fun AuraApp(
                         displayName = name
                     )
 
+                documentContent = documentText
+                reviewMode = ReviewMode.GENERAL
+
                 Triple(
                     name,
                     documentText.sourceType,
                     summarizeDocumentText(
                         title = name,
-                        rawText = documentText.text
+                        rawText = documentText.text,
+                        pages = documentText.pages
                     )
                 )
             }
@@ -1261,15 +1417,20 @@ fun AuraApp(
         )
     }
 
-    fun processChatInput(input: String) {
+    fun processChatInput(
+        input: String,
+        onlineReply: String? = null
+    ) {
         val lowerInput = input.lowercase(Locale.US)
         val replyText =
-            generateAssistantReply(
-                prompt = input,
-                recentContext = recentChatContext,
-                personalMemory = conversationMemory,
-                userProfile = userProfile
-            )
+            onlineReply
+                ?.takeIf { it.isNotBlank() }
+                ?: generateAssistantReply(
+                    prompt = input,
+                    recentContext = recentChatContext,
+                    personalMemory = conversationMemory,
+                    userProfile = userProfile
+                )
 
         if (
             pendingConfirmation != null &&
@@ -1358,6 +1519,32 @@ fun AuraApp(
                 command = input,
                 installedApps = installedApps
             )
+
+        val appCandidates =
+            findAppCandidates(
+                apps = installedApps,
+                command = input
+            )
+
+        if (appCandidates.size > 1 && isAppOpenRequest(input)) {
+            pendingAppChoices =
+                PendingAppChoices(
+                    originalCommand = input,
+                    apps = appCandidates
+                )
+            completeChatExchange(
+                userPrompt = input,
+                assistantReply = "I found several matching apps. Choose one to continue.",
+                result =
+                    ChatResult(
+                        title = "Choose an app",
+                        detail = appCandidates.joinToString(", ") { it.name },
+                        tone = ChatResultTone.INFO
+                    )
+            )
+            return
+        }
+
         val action = decideOpenAppAction(understanding)
 
         when (action) {
@@ -1505,7 +1692,21 @@ fun AuraApp(
         val request = pendingChatRequest ?: return@LaunchedEffect
         try {
             delay(420)
-            processChatInput(request)
+            val onlineReply =
+                if (aiMode == AiMode.ONLINE) {
+                    withContext(Dispatchers.IO) {
+                        onlineAiClient.complete(
+                            prompt = request,
+                            recentContext = recentChatContext
+                        )
+                    }
+                } else {
+                    null
+                }
+            processChatInput(
+                input = request,
+                onlineReply = onlineReply
+            )
         } finally {
             auraThinking = false
             pendingChatRequest = null
@@ -1662,11 +1863,15 @@ fun AuraApp(
                                 chatInput = chatInput,
                                 chatMessages = chatMessages,
                                 auraThinking = auraThinking,
+                                aiMode = aiMode,
+                                onlineConfigured = onlineAiClient.isConfigured,
+                                onAiModeChange = { aiMode = it },
                                 favoriteActions = favoriteActions,
                                 routinePresets = routinePresets,
                                 smartSuggestions = smartSuggestions,
                                 userProfile = userProfile,
                                 pendingConfirmation = pendingConfirmation,
+                                pendingAppChoices = pendingAppChoices,
                                 onChatInputChange = {
                                     chatInput = it
                                 },
@@ -1965,6 +2170,25 @@ fun AuraApp(
                                         pendingChatRequest = response
                                     }
                                 },
+                                onSelectApp = { app ->
+                                    val choices = pendingAppChoices
+                                    pendingAppChoices = null
+                                    pendingConfirmation =
+                                        PendingConfirmation(
+                                            target = app.name,
+                                            originalCommand = choices?.originalCommand ?: "Open ${app.name}"
+                                        )
+                                    completeChatExchange(
+                                        userPrompt = "Choose ${app.name}",
+                                        assistantReply = "Open ${app.name}? Please confirm.",
+                                        result =
+                                            ChatResult(
+                                                title = "App selected",
+                                                detail = app.name,
+                                                tone = ChatResultTone.INFO
+                                            )
+                                    )
+                                },
                                 onSelectFavorite = { commandText ->
                                     chatInput = commandText
                                 },
@@ -1984,12 +2208,29 @@ fun AuraApp(
                                 documentSummary = documentSummary,
                                 documentError = documentError,
                                 reviewingDocument = reviewingDocument,
+                                reviewMode = reviewMode,
                                 onPickDocument = ::openDocumentReviewer,
+                                onModeChange = { mode ->
+                                    reviewMode = mode
+                                    val content = documentContent
+
+                                    if (content != null && documentName != null) {
+                                        documentSummary =
+                                            summarizeDocumentText(
+                                                title = documentName.orEmpty(),
+                                                rawText = content.text,
+                                                options = SummaryOptions(mode = mode),
+                                                pages = content.pages
+                                            )
+                                    }
+                                },
                                 onSave = ::saveReviewer,
                                 onClear = {
                                     documentName = null
                                     documentSummary = null
+                                    documentContent = null
                                     documentError = null
+                                    reviewMode = ReviewMode.GENERAL
                                     status = "Ready"
                                 }
                             )
@@ -2210,13 +2451,17 @@ private fun HomeScreen(
     chatInput: String,
     chatMessages: List<ChatMessage>,
     auraThinking: Boolean,
+    aiMode: AiMode,
+    onlineConfigured: Boolean,
     favoriteActions: List<FavoriteAction>,
     routinePresets: List<RoutinePreset>,
     smartSuggestions: List<String>,
     userProfile: UserProfile,
     pendingConfirmation: PendingConfirmation?,
+    pendingAppChoices: PendingAppChoices?,
     onChatInputChange: (String) -> Unit,
     onSendChat: () -> Unit,
+    onAiModeChange: (AiMode) -> Unit,
     onRegenerateLast: () -> Unit,
     onEnableAura: () -> Unit,
     onPauseAura: () -> Unit,
@@ -2225,6 +2470,7 @@ private fun HomeScreen(
     onTalkToAura: () -> Unit,
     onCancelVoiceInput: () -> Unit,
     onConfirmPending: (Boolean) -> Unit,
+    onSelectApp: (InstalledApp) -> Unit,
     onSelectFavorite: (String) -> Unit,
     onRunRoutinePreset: (RoutinePreset) -> Unit
 ) {
@@ -2340,6 +2586,38 @@ private fun HomeScreen(
                         )
                     }
 
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "AI mode",
+                            color = fg.copy(alpha = 0.7f),
+                            fontSize = 12.sp
+                        )
+                        AiMode.values().forEach { mode ->
+                            OutlinedButton(
+                                onClick = { onAiModeChange(mode) },
+                                enabled = mode == AiMode.OFFLINE || onlineConfigured,
+                                contentPadding = PaddingValues(horizontal = 10.dp),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text(
+                                    text =
+                                        if (mode == AiMode.ONLINE && !onlineConfigured) {
+                                            "Online unavailable"
+                                        } else {
+                                            mode.label
+                                        },
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
                     if (pendingConfirmation != null) {
                         Column(
                             modifier =
@@ -2383,6 +2661,46 @@ private fun HomeScreen(
                                     enabled = !auraThinking
                                 ) {
                                     Text("No")
+                                }
+                            }
+                        }
+                    }
+
+                    if (pendingAppChoices != null) {
+                        Column(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f),
+                                        shape = RoundedCornerShape(16.dp)
+                                    )
+                                    .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Choose an app",
+                                color = fg,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "I found several possible matches.",
+                                color = fg.copy(alpha = 0.72f),
+                                fontSize = 13.sp
+                            )
+                            pendingAppChoices.apps.forEach { app ->
+                                OutlinedButton(
+                                    onClick = { onSelectApp(app) },
+                                    enabled = !auraThinking,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text(
+                                        text = app.name,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 }
                             }
                         }
@@ -2676,6 +2994,38 @@ private fun HomeScreen(
                                     lineHeight = 20.sp
                                 )
 
+                                val quickReplies =
+                                    if (!isUser && message.id == lastAssistantId) {
+                                        suggestedChatReplies(message)
+                                    } else {
+                                        emptyList()
+                                    }
+
+                                if (quickReplies.isNotEmpty()) {
+                                    LazyRow(
+                                        modifier = Modifier.padding(top = 6.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        items(quickReplies) { reply ->
+                                            OutlinedButton(
+                                                onClick = {
+                                                    onChatInputChange(reply)
+                                                },
+                                                enabled = !auraThinking,
+                                                contentPadding = PaddingValues(horizontal = 10.dp),
+                                                shape = RoundedCornerShape(12.dp)
+                                            ) {
+                                                Text(
+                                                    text = reply,
+                                                    fontSize = 11.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
                                 message.result?.let { result ->
                                     val resultColor =
                                         when (result.tone) {
@@ -2862,7 +3212,9 @@ private fun ReviewerScreen(
     documentSummary: DocumentSummary?,
     documentError: String?,
     reviewingDocument: Boolean,
+    reviewMode: ReviewMode,
     onPickDocument: () -> Unit,
+    onModeChange: (ReviewMode) -> Unit,
     onSave: (DocumentSummary) -> Unit,
     onClear: () -> Unit
 ) {
@@ -2897,11 +3249,13 @@ private fun ReviewerScreen(
                 summary = documentSummary,
                 error = documentError,
                 reviewing = reviewingDocument,
+                reviewMode = reviewMode,
                 modifier =
                     Modifier
                         .widthIn(max = contentMaxWidth)
                         .fillMaxWidth(),
                 onPickDocument = onPickDocument,
+                onModeChange = onModeChange,
                 onSave = onSave,
                 onClear = onClear
             )
@@ -3512,8 +3866,10 @@ fun DocumentReviewPanel(
     summary: DocumentSummary?,
     error: String?,
     reviewing: Boolean,
+    reviewMode: ReviewMode,
     modifier: Modifier = Modifier,
     onPickDocument: () -> Unit,
+    onModeChange: (ReviewMode) -> Unit,
     onSave: (DocumentSummary) -> Unit,
     onClear: () -> Unit
 ) {
@@ -3583,6 +3939,44 @@ fun DocumentReviewPanel(
                 }
             }
 
+            Text(
+                text = "Review focus",
+                color = fg,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                ReviewMode.values().forEach { mode ->
+                    OutlinedButton(
+                        onClick = { onModeChange(mode) },
+                        enabled = !reviewing,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors =
+                            ButtonDefaults.outlinedButtonColors(
+                                containerColor =
+                                    if (mode == reviewMode) {
+                                        fg.copy(alpha = 0.12f)
+                                    } else {
+                                        Color.Transparent
+                                    }
+                            )
+                    ) {
+                        Text(
+                            text = mode.label,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
             if (error != null) {
                 Text(
                     text = error,
@@ -3629,6 +4023,16 @@ fun DocumentReviewPanel(
                     overflow = TextOverflow.Ellipsis
                 )
 
+                if (summary.evidence.isNotEmpty()) {
+                    SummaryGroup(
+                        title = "Evidence",
+                        items = summary.evidence.map { evidence ->
+                            "Page ${evidence.pageNumber} (${evidence.confidenceScore}%): ${evidence.sourceSentence}"
+                        },
+                        fg = fg
+                    )
+                }
+
                 SummaryGroup(
                     title = "Key points",
                     items = summary.keyPoints,
@@ -3653,6 +4057,20 @@ fun DocumentReviewPanel(
                     SummaryGroup(
                         title = "Action items",
                         items = summary.actionItems,
+                        fg = fg
+                    )
+                }
+
+                if (summary.actionDetails.isNotEmpty()) {
+                    SummaryGroup(
+                        title = "Action details",
+                        items = summary.actionDetails.map { action ->
+                            buildString {
+                                append("${action.priority}: ${action.action}")
+                                action.owner?.let { append(" | Owner: $it") }
+                                action.deadline?.let { append(" | Due: $it") }
+                            }
+                        },
                         fg = fg
                     )
                 }

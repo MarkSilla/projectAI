@@ -20,9 +20,15 @@ import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Node
 
+data class DocumentPage(
+    val pageNumber: Int,
+    val text: String
+)
+
 data class DocumentText(
     val text: String,
-    val sourceType: String
+    val sourceType: String,
+    val pages: List<DocumentPage> = emptyList()
 )
 
 fun readDocumentTextFromUri(
@@ -125,6 +131,15 @@ fun formatReviewerMarkdown(summary: DocumentSummary): String =
         appendLine("- Confidence: ${summary.confidenceScore}/100")
         appendLine()
 
+        if (summary.evidence.isNotEmpty()) {
+            appendLine("## Evidence")
+            summary.evidence.forEach { evidence ->
+                appendLine("- Page ${evidence.pageNumber} (${evidence.confidenceScore}% confidence)")
+                appendLine("  - Source: ${evidence.sourceSentence}")
+            }
+            appendLine()
+        }
+
         appendLine("## Key Points")
         appendMarkdownBullets(summary.keyPoints)
 
@@ -142,6 +157,17 @@ fun formatReviewerMarkdown(summary: DocumentSummary): String =
             appendLine()
             appendLine("## Action Items")
             appendMarkdownBullets(summary.actionItems)
+        }
+
+        if (summary.actionDetails.isNotEmpty()) {
+            appendLine()
+            appendLine("## Action Details")
+            summary.actionDetails.forEach { action ->
+                appendLine("- ${action.action}")
+                appendLine("  - Priority: ${action.priority}")
+                action.owner?.let { appendLine("  - Owner: $it") }
+                action.deadline?.let { appendLine("  - Deadline: $it") }
+            }
         }
 
         if (summary.recommendations.isNotEmpty()) {
@@ -200,6 +226,17 @@ private fun readPdfDocument(
             }
             .orEmpty()
 
+    val pages =
+        if (shouldAttemptOcr(text)) {
+            emptyList()
+        } else {
+            readPdfPages(
+                context = context,
+                uri = uri,
+                maxChars = maxChars
+            )
+        }
+
     val finalText =
         if (shouldAttemptOcr(text)) {
             val ocrText =
@@ -224,8 +261,48 @@ private fun readPdfDocument(
 
     return DocumentText(
         text = finalText,
-        sourceType = "PDF"
+        sourceType = "PDF",
+        pages = pages
     )
+}
+
+private fun readPdfPages(
+    context: Context,
+    uri: Uri,
+    maxChars: Int
+): List<DocumentPage> {
+    PDFBoxResourceLoader.init(context.applicationContext)
+
+    return context.contentResolver
+        .openInputStream(uri)
+        ?.use { input ->
+            PDDocument.load(input).use { document ->
+                val stripper = PDFTextStripper()
+                var remaining = maxChars
+
+                (0 until document.numberOfPages).mapNotNull { index ->
+                    if (remaining <= 0) {
+                        return@mapNotNull null
+                    }
+
+                    stripper.startPage = index + 1
+                    stripper.endPage = index + 1
+                    val pageText = stripper.getText(document).trim()
+                    val limitedText = pageText.take(remaining)
+                    remaining -= limitedText.length
+
+                    if (limitedText.isBlank()) {
+                        null
+                    } else {
+                        DocumentPage(
+                            pageNumber = index + 1,
+                            text = limitedText
+                        )
+                    }
+                }
+            }
+        }
+        .orEmpty()
 }
 
 private fun readPdfWithOcr(

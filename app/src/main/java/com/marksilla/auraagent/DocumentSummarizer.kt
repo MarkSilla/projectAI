@@ -17,7 +17,23 @@ data class DocumentSummary(
     val riskFlags: List<String> = emptyList(),
     val recommendations: List<String> = emptyList(),
     val overallAssessment: String = "Needs review",
-    val confidenceScore: Int = 75
+    val confidenceScore: Int = 75,
+    val evidence: List<ReviewEvidence> = emptyList(),
+    val actionDetails: List<ReviewAction> = emptyList()
+)
+
+data class ReviewEvidence(
+    val pageNumber: Int,
+        val excerpt: String,
+        val sourceSentence: String = excerpt,
+        val confidenceScore: Int = 70
+)
+
+data class ReviewAction(
+    val action: String,
+    val owner: String? = null,
+    val deadline: String? = null,
+    val priority: String = "Medium"
 )
 
 data class SummaryOptions(
@@ -26,8 +42,19 @@ data class SummaryOptions(
     val maxActionItems: Int? = null,
     val maxKeywords: Int = 8,
     val readingWordsPerMinute: Int = 220,
-    val adaptive: Boolean = true
+    val adaptive: Boolean = true,
+    val mode: ReviewMode = ReviewMode.GENERAL
 )
+
+enum class ReviewMode(
+    val label: String
+) {
+    GENERAL("General"),
+    EXECUTIVE("Executive"),
+    RISKS("Risks"),
+    ACTIONS("Actions"),
+    STUDY("Study")
+}
 
 private data class ScoredSentence(
     val index: Int,
@@ -54,7 +81,8 @@ private enum class DocumentType {
 fun summarizeDocumentText(
     title: String,
     rawText: String,
-    options: SummaryOptions = SummaryOptions()
+    options: SummaryOptions = SummaryOptions(),
+    pages: List<DocumentPage> = emptyList()
 ): DocumentSummary? {
 
     val text = normalizeText(rawText)
@@ -72,16 +100,22 @@ fun summarizeDocumentText(
     val sentences =
         splitSentences(text)
             .filter { it.length >= 20 }
-            .take(150)
+            .take(600)
 
     if (sentences.isEmpty()) {
         return null
     }
 
+    val focusedSentences =
+        focusSentences(
+            sentences = sentences,
+            mode = options.mode
+        )
+
     val profile =
         detectDocumentProfile(
             text = text,
-            sentences = sentences
+            sentences = focusedSentences
         )
 
     val frequencies =
@@ -94,7 +128,7 @@ fun summarizeDocumentText(
     val maxKeyPoints =
         options.maxKeyPoints
             ?: if (options.adaptive) {
-                adaptiveKeyPointCount(words.size, sentences.size)
+                adaptiveKeyPointCount(words.size, focusedSentences.size)
             } else {
                 5
             }
@@ -102,7 +136,7 @@ fun summarizeDocumentText(
     val maxReviewerNotes =
         options.maxReviewerNotes
             ?: if (options.adaptive) {
-                adaptiveReviewerNoteCount(sentences.size)
+                adaptiveReviewerNoteCount(focusedSentences.size)
             } else {
                 4
             }
@@ -110,13 +144,13 @@ fun summarizeDocumentText(
     val maxActionItems =
         options.maxActionItems
             ?: if (options.adaptive) {
-                adaptiveActionItemCount(sentences.size)
+                adaptiveActionItemCount(focusedSentences.size)
             } else {
                 4
             }
 
     val ranked =
-        sentences
+        focusedSentences
             .mapIndexed { index, sentence ->
                 ScoredSentence(
                     index = index,
@@ -125,7 +159,7 @@ fun summarizeDocumentText(
                         scoreSentence(
                             sentence = sentence,
                             index = index,
-                            totalSentences = sentences.size,
+                            totalSentences = focusedSentences.size,
                             frequencies = frequencies,
                             profile = profile
                         )
@@ -143,7 +177,7 @@ fun summarizeDocumentText(
 
     val reviewerNotes =
         buildReviewerNotes(
-            sentences = sentences,
+            sentences = focusedSentences,
             ranked = ranked,
             limit = maxReviewerNotes,
             documentType = profile.type
@@ -151,7 +185,7 @@ fun summarizeDocumentText(
 
     val actionItems =
         buildActionItems(
-            sentences = sentences,
+            sentences = focusedSentences,
             limit = maxActionItems,
             documentType = profile.type
         )
@@ -159,7 +193,7 @@ fun summarizeDocumentText(
     val keywords =
         extractDynamicKeywords(
             frequencies = frequencies,
-            sentences = sentences,
+            sentences = focusedSentences,
             maxKeywords = options.maxKeywords
         )
 
@@ -172,7 +206,7 @@ fun summarizeDocumentText(
 
     val riskFlags =
         buildRiskFlags(
-            sentences = sentences,
+            sentences = focusedSentences,
             ranked = ranked,
             limit = 4
         )
@@ -197,6 +231,19 @@ fun summarizeDocumentText(
             sentenceCount = sentences.size,
             riskCount = riskFlags.size,
             actionCount = actionItems.size
+        )
+
+    val evidence =
+        buildEvidence(
+            items = (riskFlags + actionItems + keyPoints).distinct(),
+            pages = pages,
+            limit = 6
+        )
+
+    val actionDetails =
+        buildActionDetails(
+            sentences = sentences,
+            limit = maxActionItems
         )
 
     return DocumentSummary(
@@ -235,8 +282,112 @@ fun summarizeDocumentText(
 
         overallAssessment = overallAssessment,
 
-        confidenceScore = confidenceScore
+        confidenceScore = confidenceScore,
+
+        evidence = evidence,
+
+        actionDetails = actionDetails
     )
+}
+
+private fun buildEvidence(
+    items: List<String>,
+    pages: List<DocumentPage>,
+    limit: Int
+): List<ReviewEvidence> {
+    if (pages.isEmpty()) {
+        return emptyList()
+    }
+
+    return items
+        .mapNotNull { item ->
+            val itemWords =
+                extractWords(item)
+                    .filterNot { it in stopWords }
+                    .toSet()
+
+            pages
+                .map { page ->
+                    val pageWords = extractWords(page.text).toSet()
+                    page to itemWords.intersect(pageWords).size
+                }
+                .maxByOrNull { it.second }
+                ?.takeIf { it.second > 0 }
+                ?.let { (page, overlap) ->
+                    ReviewEvidence(
+                        pageNumber = page.pageNumber,
+                        excerpt = page.text.compactSentence(),
+                        sourceSentence = findSourceSentence(
+                            item = item,
+                            pageText = page.text
+                        ),
+                        confidenceScore =
+                            (60 + overlap * 8).coerceAtMost(98)
+                    )
+                }
+        }
+        .distinctBy { "${it.pageNumber}:${normalizeForComparison(it.excerpt)}" }
+        .take(limit)
+}
+
+private fun findSourceSentence(
+    item: String,
+    pageText: String
+): String {
+        val itemWords =
+            extractWords(item)
+                .filterNot { it in stopWords }
+                .toSet()
+
+        return splitSentences(pageText)
+            .maxByOrNull { sentence ->
+                itemWords.intersect(extractWords(sentence).toSet()).size
+            }
+            ?.compactSentence()
+            ?: pageText.compactSentence()
+    }
+
+private fun buildActionDetails(
+    sentences: List<String>,
+    limit: Int
+): List<ReviewAction> {
+    return sentences
+        .filter { sentence ->
+            actionSignals.any { signal ->
+                sentence.contains(signal, ignoreCase = true)
+            }
+        }
+        .distinctBy { normalizeForComparison(it) }
+        .take(limit)
+        .map { sentence ->
+            val owner =
+                Regex(
+                    "(?:assigned to|owner is|responsible for|responsible:?)\\s+([A-Z][A-Za-z]+(?:\\s+[A-Z][A-Za-z]+)*)"
+                )
+                    .find(sentence)
+                    ?.groupValues
+                    ?.getOrNull(1)
+
+            val deadline = extractDeadline(sentence)
+
+            val priority =
+                when {
+                    listOf("urgent", "critical", "asap", "immediately", "deadline")
+                        .any { sentence.contains(it, ignoreCase = true) } -> "High"
+
+                    listOf("should", "recommend", "review", "follow up")
+                        .any { sentence.contains(it, ignoreCase = true) } -> "Medium"
+
+                    else -> "Low"
+                }
+
+            ReviewAction(
+                action = sentence.compactSentence(),
+                owner = owner,
+                deadline = deadline,
+                priority = priority
+            )
+        }
 }
 
 /* =========================================================
@@ -258,6 +409,46 @@ private fun normalizeText(rawText: String): String =
             "\n\n"
         )
         .trim()
+
+private fun focusSentences(
+    sentences: List<String>,
+    mode: ReviewMode
+): List<String> {
+    val focused =
+        when (mode) {
+            ReviewMode.GENERAL -> sentences
+
+            ReviewMode.EXECUTIVE ->
+                (sentences.take(80) + sentences.takeLast(40)).distinct()
+
+            ReviewMode.RISKS ->
+                sentences.filter { sentence ->
+                    reviewerSignals.any {
+                        sentence.contains(it, ignoreCase = true)
+                    }
+                }
+
+            ReviewMode.ACTIONS ->
+                sentences.filter { sentence ->
+                    actionSignals.any {
+                        sentence.contains(it, ignoreCase = true)
+                    }
+                }
+
+            ReviewMode.STUDY ->
+                sentences.filter { sentence ->
+                    academicSignals.any {
+                        sentence.contains(it, ignoreCase = true)
+                    }
+                }
+        }
+
+    return if (focused.size >= 3) {
+        focused
+    } else {
+        sentences
+    }
+}
 
 /* =========================================================
    WORD EXTRACTION
@@ -956,6 +1147,23 @@ private fun buildActionItems(
         .distinctBy {
             normalizeForComparison(it)
         }
+
+    private fun extractDeadline(sentence: String): String? {
+        val patterns =
+            listOf(
+                "(?:by|before|on|deadline(?: is|:)?)\\s+((?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)(?:\\s+morning|\\s+afternoon|\\s+evening)?)",
+                "(?:by|before|on|deadline(?: is|:)?)\\s+((?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{1,2}(?:,?\\s+\\d{4})?)",
+                "(?:by|before|on|deadline(?: is|:)?)\\s+(\\d{1,2}[/-]\\d{1,2}(?:[/-]\\d{2,4})?)",
+                "(?:by|before|on|deadline(?: is|:)?)\\s+(next\\s+(?:week|month|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday))"
+            )
+
+        return patterns
+            .asSequence()
+            .map { Regex(it, RegexOption.IGNORE_CASE).find(sentence) }
+            .filterNotNull()
+            .mapNotNull { it.groupValues.getOrNull(1)?.trim() }
+            .firstOrNull()
+    }
         .take(limit)
         .map {
             it.compactSentence()

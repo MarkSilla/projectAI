@@ -74,6 +74,55 @@ fun findApp(
     }
 }
 
+fun findAppCandidates(
+    apps: List<InstalledApp>,
+    command: String,
+    limit: Int = 5
+): List<InstalledApp> {
+    val normalized =
+        command
+            .lowercase()
+            .replace(Regex("[^a-z0-9 ]"), " ")
+            .replace(
+                Regex("\\b(open|launch|start|run|buksan|paki|please|app|application|the|yung|ang)\\b"),
+                " "
+            )
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+    val categoryAliases =
+        when {
+            normalized.contains("chat") || normalized.contains("message") ->
+                setOf("messenger", "whatsapp", "discord", "telegram", "teams", "slack")
+
+            normalized.contains("video") ->
+                setOf("youtube", "tiktok", "netflix")
+
+            else -> emptySet()
+        }
+
+    return apps
+        .map { app ->
+            val name = app.name.lowercase()
+            val words = normalized.split(" ").filter { it.length > 1 }
+            val score =
+                when {
+                    categoryAliases.any { alias -> name.contains(alias) } -> 3
+                    words.any { word -> name.contains(word) } -> 2
+                    else -> 0
+                }
+            app to score
+        }
+        .filter { it.second > 0 }
+        .sortedWith(
+            compareByDescending<Pair<InstalledApp, Int>> { it.second }
+                .thenBy { it.first.name.lowercase() }
+        )
+        .map { it.first }
+        .distinctBy { it.packageName }
+        .take(limit)
+}
+
 private data class AppSearchText(
     val spaced: String,
     val compact: String
