@@ -144,7 +144,7 @@ internal class WebSearchManager(
                     }
                 }
             }
-        val imageResults =
+        val imageResults: Deferred<List<WebSearchResult>>? =
             if (imageSearch || includeRelatedImages) {
                 async(Dispatchers.IO) {
                     try {
@@ -155,7 +155,7 @@ internal class WebSearchManager(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
-                        emptyList()
+                        emptyList<WebSearchResult>()
                     }
                 }
             } else {
