@@ -811,7 +811,7 @@ fun AuraApp(
         }
     val webSearchManager =
         remember {
-            WebSearchManager()
+            WebSearchManager(includeRelatedImages = true)
         }
     val reviewerWebScope = rememberCoroutineScope()
     var reviewerWebResults by remember {
@@ -3508,6 +3508,15 @@ private fun WebSearchResultItem(
     onOpenLink: (String) -> Unit,
     actionLabel: String = "Read more"
 ) {
+    val displayTitle =
+        result.title
+            .takeIf { it.isNotBlank() && !isUrlLikeText(it) }
+            ?: "Web search result"
+    val displaySnippet =
+        result.snippet
+            .takeIf { it.isNotBlank() && !isUrlLikeText(it) }
+            ?: "Open the source to read the full information."
+
     Column(
         modifier =
             Modifier
@@ -3524,22 +3533,20 @@ private fun WebSearchResultItem(
             WebSearchResultImage(imageUrl)
         }
         Text(
-            text = result.title,
+            text = displayTitle,
             color = MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.Bold,
             fontSize = 13.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
-        if (result.snippet.isNotBlank()) {
-            Text(
-                text = result.snippet,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
-                fontSize = 12.sp,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+        Text(
+            text = displaySnippet,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+            fontSize = 12.sp,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+        )
         TextButton(
             onClick = { onOpenLink(result.url) },
             contentPadding = PaddingValues(0.dp)

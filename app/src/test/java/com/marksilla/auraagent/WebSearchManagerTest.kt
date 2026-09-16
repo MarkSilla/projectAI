@@ -57,6 +57,51 @@ class WebSearchManagerTest {
         assertTrue(isVideoSearchQuery("videos about Android development"))
         assertTrue(isVideoSearchQuery("YouTube tutorial for Kotlin"))
         assertTrue(!isVideoSearchQuery("what is RAM?"))
+        assertTrue(isImageSearchQuery("images of Manila"))
+        assertTrue(!isImageSearchQuery("what is RAM?"))
+    }
+
+    @Test
+    fun parsesImageSearchResults() {
+        val json =
+            """
+            {"title":"Manila skyline","image":"https://images.example/sky.jpg","thumbnail":"https://images.example/thumb.jpg","url":"https://example.com/manila"}
+            """.trimIndent()
+
+        val results = parseImageSearchResults(json)
+
+        assertEquals(1, results.size)
+        assertEquals("Manila skyline", results[0].title)
+        assertEquals("https://images.example/thumb.jpg", results[0].imageUrl)
+        assertEquals("https://example.com/manila", results[0].url)
+    }
+
+    @Test
+    fun attachesRelatedImageToNormalWebResults() {
+        val manager =
+            WebSearchManager(
+                fetch = {
+                    """
+                    <div class="result">
+                      <a class="result__a" href="https://example.com/ram">RAM guide</a>
+                      <a class="result__snippet">RAM stores active data.</a>
+                    </div>
+                    """.trimIndent()
+                },
+                fetchImages = {
+                    """
+                    {"title":"RAM image","image":"https://images.example/ram.jpg","thumbnail":"https://images.example/ram-thumb.jpg","url":"https://example.com/ram-image"}
+                    """.trimIndent()
+                },
+                includeRelatedImages = true
+            )
+
+        val response = manager.searchDetailed("what is RAM?")
+
+        assertEquals(
+            "https://images.example/ram-thumb.jpg",
+            response.results.single().imageUrl
+        )
     }
 
     @Test
@@ -80,6 +125,20 @@ class WebSearchManagerTest {
     }
 
     @Test
+    fun normalizesRedirectAndProtocolRelativeSourceLinks() {
+        assertEquals(
+            "https://example.com/article",
+            normalizeSearchResultUrl(
+                "//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Farticle"
+            )
+        )
+        assertEquals(
+            "https://example.com/article",
+            normalizeSearchResultUrl("https://example.com/article")
+        )
+    }
+
+    @Test
     fun handlesEmptyResults() {
         val manager = WebSearchManager { "<html><body>No results</body></html>" }
 
@@ -88,6 +147,38 @@ class WebSearchManagerTest {
         assertTrue(response.results.isEmpty())
         assertEquals(null, response.error)
         assertTrue(formatWebSearchReply(response).contains("couldn't find", ignoreCase = true))
+    }
+
+    @Test
+    fun formatsSummaryAndKeyPointsFromSearchResults() {
+        val response =
+            WebSearchResponse(
+                results = listOf(
+                    WebSearchResult(
+                        title = "RAM guide",
+                        url = "https://example.com/ram",
+                        snippet = "RAM temporarily stores active data. It helps apps multitask."
+                    ),
+                    WebSearchResult(
+                        title = "Memory basics",
+                        url = "https://example.com/memory",
+                        snippet = "More RAM can improve multitasking."
+                    )
+                )
+            )
+
+        val reply = formatWebSearchReply(response)
+
+        assertTrue(reply.contains("Summary"))
+        assertTrue(reply.contains("RAM temporarily stores active data."))
+        assertTrue(reply.contains("Key points"))
+        assertTrue(reply.contains("More RAM can improve multitasking."))
+    }
+
+    @Test
+    fun identifiesUrlOnlyDisplayText() {
+        assertTrue(isUrlLikeText("https://example.com/article"))
+        assertTrue(!isUrlLikeText("RAM guide"))
     }
 
     @Test
