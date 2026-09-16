@@ -1,9 +1,10 @@
 package com.marksilla.auraagent
 
 /**
- * Extracts the application name from natural "open app" commands.
+ * Converts natural language into an application name.
  *
  * Examples:
+ *
  * "Open Facebook"                  -> "facebook"
  * "Please open Facebook"           -> "facebook"
  * "Can you open Facebook?"         -> "facebook"
@@ -23,36 +24,34 @@ fun extractOpenCommand(command: String): String? {
         return null
     }
 
-    // Remove punctuation that commonly appears in voice commands.
+    // Normalize punctuation.
     text = text
         .replace("?", " ")
         .replace("!", " ")
         .replace(".", " ")
         .replace(",", " ")
+        .replace(";", " ")
         .trim()
         .replace(Regex("\\s+"), " ")
 
-    // Remove the assistant's name when the user says:
-    // "AURA, open Facebook"
-    // "Hey AURA, open Facebook"
+    // Remove AURA's name when included.
     val assistantPrefixes = listOf(
         "hey aura ",
         "hi aura ",
         "hello aura ",
-        "aura ",
-        "hey aura, ",
-        "hi aura, ",
-        "hello aura, "
+        "aura "
     )
 
     for (prefix in assistantPrefixes) {
         if (text.startsWith(prefix)) {
-            text = text.removePrefix(prefix).trim()
+            text = text
+                .removePrefix(prefix)
+                .trim()
             break
         }
     }
 
-    // Remove common polite/conversational phrases.
+    // Remove polite phrases.
     val politePrefixes = listOf(
         "could you please ",
         "can you please ",
@@ -70,30 +69,32 @@ fun extractOpenCommand(command: String): String? {
 
     for (prefix in politePrefixes) {
         if (text.startsWith(prefix)) {
-            text = text.removePrefix(prefix).trim()
+            text = text
+                .removePrefix(prefix)
+                .trim()
             break
         }
     }
 
     /*
-     * Longer phrases MUST come before shorter phrases.
+     * Longer phrases come first.
      *
-     * Example:
-     * "buksan mo facebook"
+     * This prevents:
      *
-     * If "buksan " comes first, the result becomes:
-     * "mo facebook"
+     * "buksan mo Facebook"
      *
-     * So "buksan mo " comes first.
+     * from becoming:
+     *
+     * "mo Facebook"
      */
     val openPrefixes = listOf(
 
-        // English conversational
+        // English
         "open up ",
-        "open for me ",
-        "open it for me ",
         "open the app ",
         "open app ",
+        "open for me ",
+        "open it for me ",
         "open ",
         "launch the app ",
         "launch app ",
@@ -105,40 +106,36 @@ fun extractOpenCommand(command: String): String? {
         "run app ",
         "run ",
 
-        // English navigation
+        // Navigation
         "take me to ",
         "take me into ",
-        "take me inside ",
         "bring me to ",
         "bring me into ",
         "go to ",
         "go into ",
         "get me to ",
         "get me into ",
-        "get me in ",
 
-        // English conversational
+        // Conversational English
         "i want you to open ",
         "i need you to open ",
         "i want to open ",
         "i need to open ",
         "i'd like to open ",
         "i would like to open ",
-        "please open ",
-        "please launch ",
-        "please start ",
-        "please run ",
+        "go ahead and open ",
 
         // Tagalog
-        "buksan mo ang ",
-        "buksan mo yung ",
         "buksan mo ang app na ",
         "buksan mo yung app na ",
+        "buksan mo ang ",
+        "buksan mo yung ",
         "buksan mo ",
-        "buksan ang ",
-        "buksan yung ",
         "buksan ang app na ",
         "buksan yung app na ",
+        "buksan ang ",
+        "buksan yung ",
+        "buksan ",
 
         // Taglish
         "i-open mo ang ",
@@ -157,7 +154,7 @@ fun extractOpenCommand(command: String): String? {
         "run mo yung ",
         "run mo ",
 
-        // "Paki" variations
+        // Paki variations
         "paki-buksan ang ",
         "paki-buksan yung ",
         "paki-buksan ",
@@ -171,7 +168,7 @@ fun extractOpenCommand(command: String): String? {
         "paki open yung ",
         "paki open ",
 
-        // Tagalog conversational
+        // Tagalog questions
         "pwede mo bang buksan ang ",
         "pwede mo bang buksan yung ",
         "pwede mo bang buksan ",
@@ -181,20 +178,16 @@ fun extractOpenCommand(command: String): String? {
         "maaari mo bang buksan ang ",
         "maaari mo bang buksan yung ",
         "maaari mo bang buksan ",
+
+        // Other natural phrases
         "gusto kong buksan ang ",
         "gusto kong buksan yung ",
         "gusto kong buksan ",
         "puntahan mo ang ",
         "puntahan mo yung ",
         "puntahan mo ",
-
-        // Casual phrases
         "let's open ",
-        "lets open ",
-        "go ahead and open ",
-        "go ahead open ",
-        "get ",
-        "open up "
+        "lets open "
     )
 
     for (prefix in openPrefixes) {
@@ -205,24 +198,24 @@ fun extractOpenCommand(command: String): String? {
                 .removePrefix(prefix)
                 .trim()
 
-            if (appName.isNotBlank()) {
-                return cleanAppName(appName)
+            if (appName.isBlank()) {
+                return null
             }
 
-            return null
+            return cleanAppName(appName)
         }
     }
 
     /*
-     * Handle commands where the user simply says:
+     * Simple requests:
      *
      * "Facebook please"
      * "Facebook"
      *
-     * We only return a name for these if they look like a
-     * simple app request.
+     * We only accept a single word here so that
+     * random sentences aren't interpreted as apps.
      */
-    val trailingRequestWords = listOf(
+    val trailingWords = listOf(
         " please",
         " naman",
         " nga",
@@ -230,28 +223,28 @@ fun extractOpenCommand(command: String): String? {
         " ngayon"
     )
 
-    for (suffix in trailingRequestWords) {
+    for (suffix in trailingWords) {
         if (text.endsWith(suffix)) {
-            text = text.removeSuffix(suffix).trim()
+            text = text
+                .removeSuffix(suffix)
+                .trim()
             break
         }
-    }
-
-    // Don't treat random sentences as app names.
-    if (text.contains(" ")) {
-        return null
     }
 
     if (text.isBlank()) {
         return null
     }
 
+    if (text.contains(" ")) {
+        return null
+    }
+
     return cleanAppName(text)
 }
 
-
 /**
- * Cleans the extracted application name.
+ * Cleans the application name before matching it.
  */
 private fun cleanAppName(appName: String): String {
 
@@ -259,7 +252,6 @@ private fun cleanAppName(appName: String): String {
         .trim()
         .replace(Regex("\\s+"), " ")
 
-    // Remove common trailing conversational words.
     val trailingWords = listOf(
         " please",
         " for me",
@@ -276,7 +268,6 @@ private fun cleanAppName(appName: String): String {
         }
     }
 
-    // Remove "the app" if it was accidentally included.
     result = result
         .removePrefix("the app ")
         .removePrefix("app ")
