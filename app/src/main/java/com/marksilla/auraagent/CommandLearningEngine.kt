@@ -208,24 +208,4 @@ private fun minConfidence(
 ): Float =
     ((existing + incoming) / 2f).coerceIn(0.0f, 1.0f)
 
-private fun normalizeLearningText(text: String): String {
-    var normalized = text
-        .lowercase(Locale.US)
-        .replace("&", " and ")
-        .replace(Regex("[^a-z0-9{} ]"), " ")
-        .replace(Regex("\\s+"), " ")
-        .trim()
 
-    val assistantPrefixes =
-        listOf(
-            "hey aura ",
-            "hi aura ",
-            "hello aura ",
-            "aura "
-        )
-
-    assistantPrefixes.firstOrNull { normalized.startsWith(it) }
-        ?.let { normalized = normalized.removePrefix(it).trim() }
-
-    return normalized
-}

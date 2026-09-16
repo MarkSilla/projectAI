@@ -60,6 +60,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -112,7 +113,7 @@ private enum class AuraScreen(
     REVIEWER(
         title = "Document Reviewer",
         label = "Reviewer",
-        icon = Icons.Filled.Article
+        icon = Icons.Filled.Description
     ),
     SETTINGS(
         title = "Settings",
@@ -898,15 +899,18 @@ fun AuraApp(
                     assistantReply = reply
                 )
             saveChatMemory(context, conversationMemory)
-            chatMessages +=
-                ChatMessage(
-                    id = System.currentTimeMillis(),
-                    role = ChatRole.USER,
-                    text = "Start ${preset.title} routine"
-                ) + ChatMessage(
-                    id = System.currentTimeMillis() + 1L,
-                    role = ChatRole.ASSISTANT,
-                    text = reply
+            chatMessages =
+                chatMessages + listOf(
+                    ChatMessage(
+                        id = System.currentTimeMillis(),
+                        role = ChatRole.USER,
+                        text = "Start ${preset.title} routine"
+                    ),
+                    ChatMessage(
+                        id = System.currentTimeMillis() + 1L,
+                        role = ChatRole.ASSISTANT,
+                        text = reply
+                    )
                 )
         } else {
             status = "Unable to start ${preset.title} routine"
@@ -1265,6 +1269,7 @@ fun AuraApp(
                                 chatMessages = chatMessages,
                                 favoriteActions = favoriteActions,
                                 routinePresets = routinePresets,
+                                smartSuggestions = smartSuggestions,
                                 pendingConfirmation = pendingConfirmation,
                                 onChatInputChange = {
                                     chatInput = it
@@ -1484,7 +1489,9 @@ fun AuraApp(
                                             ?: return@HomeScreen
 
                                     val lastAssistantIndex =
-                                        chatMessages.lastIndexOfLast { it.role == ChatRole.ASSISTANT }
+                                        chatMessages.indices.lastOrNull {
+                                            chatMessages[it].role == ChatRole.ASSISTANT
+                                        } ?: -1
 
                                     if (lastAssistantIndex >= 0) {
                                         val regeneratedText =
@@ -1540,6 +1547,9 @@ fun AuraApp(
                                 },
                                 onSelectFavorite = { commandText ->
                                     chatInput = commandText
+                                },
+                                onRunRoutinePreset = { preset ->
+                                    runRoutinePreset(preset)
                                 }
                             )
 
@@ -1781,6 +1791,7 @@ private fun HomeScreen(
     chatMessages: List<ChatMessage>,
     favoriteActions: List<FavoriteAction>,
     routinePresets: List<RoutinePreset>,
+    smartSuggestions: List<String>,
     pendingConfirmation: PendingConfirmation?,
     onChatInputChange: (String) -> Unit,
     onSendChat: () -> Unit,
