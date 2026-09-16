@@ -39,6 +39,8 @@ class DocumentSummarizerTest {
         assertTrue(summary.executiveSummary.isNotBlank())
         assertTrue(summary.riskFlags.isNotEmpty())
         assertTrue(summary.recommendations.isNotEmpty())
+        assertTrue(summary.overallAssessment.isNotBlank())
+        assertTrue(summary.confidenceScore in 35..98)
     }
 
     @Test
@@ -109,6 +111,7 @@ class DocumentSummarizerTest {
         assertTrue(markdown.contains("# Study Notes.docx"))
         assertTrue(markdown.contains("## Key Points"))
         assertTrue(markdown.contains("## Executive Summary"))
+        assertTrue(markdown.contains("## Overall Assessment"))
         assertTrue(markdown.contains("- Focus on the main idea."))
         assertEquals(
             "Study Notes Reviewer.md",

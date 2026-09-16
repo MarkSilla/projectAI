@@ -3612,6 +3612,23 @@ fun DocumentReviewPanel(
                     )
                 }
 
+                Text(
+                    text = "Assessment: ${summary.overallAssessment}",
+                    color = fg,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Text(
+                    text = "Confidence: ${summary.confidenceScore}/100",
+                    color = fg.copy(alpha = 0.7f),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
                 SummaryGroup(
                     title = "Key points",
                     items = summary.keyPoints,

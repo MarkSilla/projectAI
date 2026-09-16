@@ -120,6 +120,11 @@ fun formatReviewerMarkdown(summary: DocumentSummary): String =
             appendLine()
         }
 
+        appendLine("## Overall Assessment")
+        appendLine(summary.overallAssessment)
+        appendLine("- Confidence: ${summary.confidenceScore}/100")
+        appendLine()
+
         appendLine("## Key Points")
         appendMarkdownBullets(summary.keyPoints)
 

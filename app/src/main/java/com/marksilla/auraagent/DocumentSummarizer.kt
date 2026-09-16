@@ -1,4 +1,3 @@
-```kotlin
 package com.marksilla.auraagent
 
 import kotlin.math.ceil
@@ -15,7 +14,9 @@ data class DocumentSummary(
     val keywords: List<String>,
     val executiveSummary: String = "",
     val riskFlags: List<String> = emptyList(),
-    val recommendations: List<String> = emptyList()
+    val recommendations: List<String> = emptyList(),
+    val overallAssessment: String = "Needs review",
+    val confidenceScore: Int = 75
 )
 
 data class SummaryOptions(
@@ -182,6 +183,21 @@ fun summarizeDocumentText(
             limit = 4
         )
 
+    val overallAssessment =
+        buildOverallAssessment(
+            riskFlags = riskFlags,
+            actionItems = actionItems,
+            keyPoints = keyPoints
+        )
+
+    val confidenceScore =
+        calculateConfidenceScore(
+            wordCount = words.size,
+            sentenceCount = sentences.size,
+            riskCount = riskFlags.size,
+            actionCount = actionItems.size
+        )
+
     return DocumentSummary(
         title =
             title
@@ -214,7 +230,11 @@ fun summarizeDocumentText(
 
         riskFlags = riskFlags,
 
-        recommendations = recommendations
+        recommendations = recommendations,
+
+        overallAssessment = overallAssessment,
+
+        confidenceScore = confidenceScore
     )
 }
 
@@ -1028,6 +1048,56 @@ private fun buildRecommendations(
         .take(limit)
 }
 
+private fun buildOverallAssessment(
+    riskFlags: List<String>,
+    actionItems: List<String>,
+    keyPoints: List<String>
+): String {
+    return when {
+        riskFlags.size >= 3 && actionItems.isNotEmpty() ->
+            "High-priority review: significant risks and follow-up actions are identified."
+
+        riskFlags.isNotEmpty() ->
+            "Moderate review: some issues need attention before final approval."
+
+        actionItems.isNotEmpty() && keyPoints.size >= 3 ->
+            "Positive review: the document is clear, actionable, and well structured."
+
+        keyPoints.isNotEmpty() ->
+            "Stable review: the main findings are coherent and easy to follow."
+
+        else ->
+            "Needs review: the document is not yet clear enough for confident decisions."
+    }
+}
+
+private fun calculateConfidenceScore(
+    wordCount: Int,
+    sentenceCount: Int,
+    riskCount: Int,
+    actionCount: Int
+): Int {
+    var score = 72
+
+    score += when {
+        wordCount >= 600 -> 16
+        wordCount >= 250 -> 10
+        wordCount >= 120 -> 6
+        else -> 2
+    }
+
+    score += when {
+        sentenceCount >= 25 -> 8
+        sentenceCount >= 12 -> 5
+        else -> 2
+    }
+
+    score -= riskCount * 5
+    score += actionCount * 3
+
+    return score.coerceIn(35, 98)
+}
+
 /* =========================================================
    KEYWORD EXTRACTION
    ========================================================= */
@@ -1686,4 +1756,4 @@ private val stopWords =
         "yours",
         "yung"
     )
-```
+
