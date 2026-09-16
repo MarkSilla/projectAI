@@ -38,3 +38,7 @@ Online mode uses the in-app Settings screen. The API key is stored encrypted wit
 - `online_ai_model` (optional; defaults to `gpt-4o-mini`)
 
 The API key is intentionally not hardcoded in the source, Gradle files, or repository.
+
+## Web search
+
+AURA can search the web without an AI API key when a request clearly asks for current or external information, such as "latest news", "today's weather", or "search for Android updates". It uses a real DuckDuckGo HTML search request, shows result titles, snippets, and source URLs, and reports network failures without pretending that results were found. Local requests such as app launching, calculations, and general explanations stay offline.

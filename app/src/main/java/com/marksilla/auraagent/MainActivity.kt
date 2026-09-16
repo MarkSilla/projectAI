@@ -777,6 +777,10 @@ fun AuraApp(
         remember {
             OnlineAiClient(context.applicationContext)
         }
+    val webSearchManager =
+        remember {
+            WebSearchManager()
+        }
     var onlineApiKeyConfigured by remember {
         mutableStateOf(onlineAiClient.isConfigured)
     }
@@ -1697,6 +1701,47 @@ fun AuraApp(
         val request = pendingChatRequest ?: return@LaunchedEffect
         try {
             delay(420)
+            if (shouldSearchWeb(request)) {
+                status = "Searching the web..."
+                val response =
+                    withContext(Dispatchers.IO) {
+                        webSearchManager.searchDetailed(request)
+                    }
+                val webReply = formatWebSearchReply(response)
+                status =
+                    if (response.error == null) {
+                        "Web search complete"
+                    } else {
+                        "Web search failed"
+                    }
+                completeChatExchange(
+                    userPrompt = request,
+                    assistantReply = webReply,
+                    result =
+                        ChatResult(
+                            title =
+                                if (response.error == null) {
+                                    "Web results"
+                                } else {
+                                    "Web search unavailable"
+                                },
+                            detail =
+                                if (response.error == null) {
+                                    "${response.results.size} sources found"
+                                } else {
+                                    "Using local assistant behavior"
+                                },
+                            tone =
+                                if (response.error == null) {
+                                    ChatResultTone.INFO
+                                } else {
+                                    ChatResultTone.WARNING
+                                }
+                        )
+                )
+                return@LaunchedEffect
+            }
+
             val onlineReply =
                 if (aiMode == AiMode.ONLINE) {
                     withContext(Dispatchers.IO) {
