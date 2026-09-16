@@ -1703,9 +1703,10 @@ fun AuraApp(
             delay(420)
             if (shouldSearchWeb(request)) {
                 status = "Searching the web..."
+                val searchQuery = extractWebSearchQuery(request) ?: request
                 val response =
                     withContext(Dispatchers.IO) {
-                        webSearchManager.searchDetailed(request)
+                        webSearchManager.searchDetailed(searchQuery)
                     }
                 val webReply = formatWebSearchReply(response)
                 status =

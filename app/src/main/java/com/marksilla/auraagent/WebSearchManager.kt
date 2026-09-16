@@ -43,43 +43,22 @@ internal class WebSearchManager(
     }
 }
 
+internal fun extractWebSearchQuery(input: String): String? {
+    val match =
+        Regex(
+            "^\\s*@web\\s*\\{([\\s\\S]*)}\\s*$",
+            RegexOption.IGNORE_CASE
+        ).matchEntire(input)
+
+    return match
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+}
+
 internal fun shouldSearchWeb(input: String): Boolean {
-    val normalized =
-        input
-            .lowercase()
-            .replace(Regex("[^a-z0-9 ]"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-
-    if (normalized.isBlank()) {
-        return false
-    }
-
-    val webIntentPhrases =
-        listOf(
-            "latest",
-            "today",
-            "current",
-            "recent",
-            "right now",
-            "this week",
-            "this month",
-            "what happened",
-            "news",
-            "weather",
-            "search",
-            "look up",
-            "find information",
-            "find out",
-            "online",
-            "who is the current",
-            "what is the latest",
-            "what time does"
-        )
-
-    return webIntentPhrases.any { phrase ->
-        normalized.contains(phrase)
-    }
+    return extractWebSearchQuery(input) != null
 }
 
 internal fun parseSearchResults(

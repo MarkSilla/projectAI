@@ -6,17 +6,41 @@ import org.junit.Test
 
 class WebSearchManagerTest {
     @Test
-    fun detectsRequestsThatNeedCurrentWebInformation() {
-        assertTrue(shouldSearchWeb("What's the latest news today?"))
-        assertTrue(shouldSearchWeb("Find information about Gordon College"))
-        assertTrue(shouldSearchWeb("What is the weather today?"))
+    fun extractsExplicitWebSearchQuery() {
+        assertEquals(
+            "what is RAM?",
+            extractWebSearchQuery("@web {what is RAM?}")
+        )
+        assertEquals(
+            "latest Android news",
+            extractWebSearchQuery("  @WEB { latest Android news } ")
+        )
     }
 
     @Test
-    fun leavesLocalRequestsOffline() {
+    fun explicitWebSearchUsesOnlyTextInsideBraces() {
+        var receivedQuery: String? = null
+        val manager =
+            WebSearchManager {
+                receivedQuery = it
+                "<html><body>No results</body></html>"
+            }
+
+        manager.searchDetailed(extractWebSearchQuery("@web {what is RAM?}")!!)
+
+        assertEquals("what is RAM?", receivedQuery)
+    }
+
+    @Test
+    fun onlyExplicitWebCommandsTriggerSearch() {
+        assertTrue(shouldSearchWeb("@web {What is RAM?}"))
+        assertTrue(!shouldSearchWeb("What's the latest news today?"))
+        assertTrue(!shouldSearchWeb("Find information about Gordon College"))
+        assertTrue(!shouldSearchWeb("What is the weather today?"))
         assertTrue(!shouldSearchWeb("What is 25 times 8?"))
         assertTrue(!shouldSearchWeb("Open Messenger"))
         assertTrue(!shouldSearchWeb("What is RAM?"))
+        assertTrue(extractWebSearchQuery("@web {}") == null)
     }
 
     @Test
