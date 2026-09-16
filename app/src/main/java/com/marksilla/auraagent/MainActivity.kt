@@ -190,7 +190,19 @@ internal fun generateAssistantReply(
                 if (habitReminder != null) {
                     "I can open that for you. ${habitReminder}"
                 } else if (lastContext != null && (lastContext.contains("facebook") || lastContext.contains("messenger") || lastContext.contains("settings"))) {
-                    "I can open that for you. Based on your recent activity, you were looking at ${lastContext.replace(Regex("^open "), "").trim()} earlier."
+                    val recentTarget =
+                        lastContext
+                            .replace(Regex("^open "), "")
+                            .trim()
+                            .replaceFirstChar {
+                                if (it.isLowerCase()) {
+                                    it.titlecase(Locale.US)
+                                } else {
+                                    it.toString()
+                                }
+                            }
+
+                    "I can open that for you. Based on your previous activity, you were looking at ${recentTarget} earlier."
                 } else {
                     "I can open that app for you and keep the action smooth and direct."
                 }

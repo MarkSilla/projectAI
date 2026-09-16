@@ -191,8 +191,16 @@ fun createOpenAppLearningPattern(
 }
 
 private fun normalizePattern(pattern: String): String {
-    var normalized = normalizeLearningText(pattern)
+    val placeholderToken = "appslotplaceholder"
+    var normalized =
+        normalizeLearningText(
+            pattern.replace(
+                Regex("\\{\\s*app\\s*\\}", RegexOption.IGNORE_CASE),
+                " $placeholderToken "
+            )
+        )
     normalized = normalized
+        .replace(placeholderToken, "{app}")
         .replace("{ app }", "{app}")
         .replace("{ app}", "{app}")
         .replace("{app }", "{app}")
