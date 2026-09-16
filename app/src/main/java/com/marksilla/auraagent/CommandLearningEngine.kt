@@ -1,11 +1,24 @@
 package com.marksilla.auraagent
 
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Locale
 
 private const val DEFAULT_PATTERN_CONFIDENCE = 0.82f
+private const val COMMAND_MEMORY_PREFERENCES = "aura_preferences"
+private const val KEY_LEARNED_COMMAND_PATTERNS = "learned_command_patterns"
+private const val MAX_LEARNED_PATTERNS = 80
 
-class CommandLearningEngine {
-    private val learnedPatterns = mutableListOf<LearnedPattern>()
+class CommandLearningEngine(
+    context: Context? = null
+) {
+    private val preferences =
+        context
+            ?.applicationContext
+            ?.getSharedPreferences(COMMAND_MEMORY_PREFERENCES, Context.MODE_PRIVATE)
+
+    private val learnedPatterns = loadLearnedPatterns().toMutableList()
 
     val patterns: List<LearnedPattern>
         get() = learnedPatterns.toList()
@@ -58,10 +71,12 @@ class CommandLearningEngine {
                     usageCount = existing.usageCount + 1,
                     lastUsedAt = System.currentTimeMillis()
                 )
+            saveLearnedPatterns()
             return
         }
 
         learnedPatterns += pattern
+        saveLearnedPatterns()
     }
 
     fun match(
@@ -132,6 +147,56 @@ class CommandLearningEngine {
             source = CommandUnderstandingSource.LEARNED_PATTERN,
             learnedPattern = pattern.normalizedPattern
         )
+    }
+
+    private fun loadLearnedPatterns(): List<LearnedPattern> {
+        val raw =
+            preferences
+                ?.getString(KEY_LEARNED_COMMAND_PATTERNS, "")
+                .orEmpty()
+
+        if (raw.isBlank()) {
+            return emptyList()
+        }
+
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    array
+                        .optJSONObject(index)
+                        ?.toLearnedPattern()
+                        ?.let(::add)
+                }
+            }
+        }.getOrElse {
+            emptyList()
+        }
+    }
+
+    private fun saveLearnedPatterns() {
+        val prefs = preferences ?: return
+        val prunedPatterns =
+            learnedPatterns
+                .sortedWith(
+                    compareByDescending<LearnedPattern> { it.usageCount }
+                        .thenByDescending { it.confidence }
+                        .thenByDescending { it.lastUsedAt }
+                )
+                .take(MAX_LEARNED_PATTERNS)
+
+        learnedPatterns.clear()
+        learnedPatterns += prunedPatterns
+
+        val serialized = JSONArray()
+        prunedPatterns.forEach { pattern ->
+            serialized.put(pattern.toJson())
+        }
+
+        prefs
+            .edit()
+            .putString(KEY_LEARNED_COMMAND_PATTERNS, serialized.toString())
+            .apply()
     }
 }
 
@@ -216,4 +281,40 @@ private fun minConfidence(
 ): Float =
     ((existing + incoming) / 2f).coerceIn(0.0f, 1.0f)
 
+private fun LearnedPattern.toJson(): JSONObject =
+    JSONObject()
+        .put("normalizedPattern", normalizedPattern)
+        .put("intent", intent.name)
+        .put("targetSlot", targetSlot)
+        .put("confidence", confidence.toDouble())
+        .put("usageCount", usageCount)
+        .put("createdAt", createdAt)
+        .put("lastUsedAt", lastUsedAt)
+
+private fun JSONObject.toLearnedPattern(): LearnedPattern? {
+    val normalizedPattern = optString("normalizedPattern").trim()
+    if (normalizedPattern.isBlank()) {
+        return null
+    }
+
+    val intent =
+        runCatching {
+            AuraCommandIntent.valueOf(optString("intent"))
+        }.getOrDefault(AuraCommandIntent.UNKNOWN)
+
+    val createdAt = optLong("createdAt", System.currentTimeMillis())
+
+    return LearnedPattern(
+        normalizedPattern = normalizedPattern,
+        intent = intent,
+        targetSlot = optString("targetSlot").takeIf { it.isNotBlank() && it != "null" },
+        confidence =
+            optDouble("confidence", DEFAULT_PATTERN_CONFIDENCE.toDouble())
+                .toFloat()
+                .coerceIn(0.0f, 1.0f),
+        usageCount = optInt("usageCount", 1).coerceAtLeast(1),
+        createdAt = createdAt,
+        lastUsedAt = optLong("lastUsedAt", createdAt)
+    )
+}
 
