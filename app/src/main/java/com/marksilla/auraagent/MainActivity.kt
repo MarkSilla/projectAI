@@ -603,9 +603,9 @@ fun AuraApp(context: Context) {
                         Text(
                             text =
                                 if (listening) {
-                                    "Listening…"
+                                    "Listening..."
                                 } else {
-                                    "🎙  Talk to AURA"
+                                    "Talk to AURA"
                                 },
                             fontSize = 16.sp
                         )
@@ -616,6 +616,10 @@ fun AuraApp(context: Context) {
 
                     Text(
                         text = "Quick actions",
+                        modifier =
+                            Modifier
+                                .widthIn(max = contentMaxWidth)
+                                .fillMaxWidth(),
                         color = fg,
                         fontWeight =
                             FontWeight.Bold,
@@ -625,65 +629,154 @@ fun AuraApp(context: Context) {
 
                 item {
 
-                    Row(
-                        modifier =
-                            Modifier.fillMaxWidth(),
-                        horizontalArrangement =
-                            Arrangement.spacedBy(10.dp)
-                    ) {
-
-                        Quick(
-                            title = "Apps",
-                            card = card,
-                            fg = fg
+                    if (compact) {
+                        Column(
+                            modifier =
+                                Modifier
+                                    .widthIn(max = contentMaxWidth)
+                                    .fillMaxWidth(),
+                            verticalArrangement =
+                                Arrangement.spacedBy(10.dp)
                         ) {
-                            status =
-                                "${installedApps.size} apps found"
-                        }
+                            Row(
+                                modifier =
+                                    Modifier.fillMaxWidth(),
+                                horizontalArrangement =
+                                    Arrangement.spacedBy(10.dp)
+                            ) {
+                                Quick(
+                                    title = "Apps",
+                                    card = card,
+                                    fg = fg,
+                                    height = quickHeight
+                                ) {
+                                    status =
+                                        "${installedApps.size} apps found"
+                                }
 
-                        Quick(
-                            title = "Files",
-                            card = card,
-                            fg = fg
-                        ) {
+                                Quick(
+                                    title = "Files",
+                                    card = card,
+                                    fg = fg,
+                                    height = quickHeight
+                                ) {
 
-                            context.startActivity(
-                                Intent(
-                                    Intent.ACTION_OPEN_DOCUMENT
-                                ).apply {
-                                    type = "*/*"
+                                    context.startActivity(
+                                        Intent(
+                                            Intent.ACTION_OPEN_DOCUMENT
+                                        ).apply {
+                                            type = "*/*"
 
-                                    addCategory(
-                                        Intent.CATEGORY_OPENABLE
+                                            addCategory(
+                                                Intent.CATEGORY_OPENABLE
+                                            )
+                                        }
                                     )
                                 }
-                            )
-                        }
+                            }
 
-                        Quick(
-                            title = "Settings",
-                            card = card,
-                            fg = fg
+                            Row(
+                                modifier =
+                                    Modifier.fillMaxWidth(),
+                                horizontalArrangement =
+                                    Arrangement.spacedBy(10.dp)
+                            ) {
+                                Quick(
+                                    title = "Settings",
+                                    card = card,
+                                    fg = fg,
+                                    height = quickHeight
+                                ) {
+
+                                    context.startActivity(
+                                        Intent(
+                                            Settings.ACTION_SETTINGS
+                                        )
+                                    )
+                                }
+
+                                Quick(
+                                    title = "Downloads",
+                                    card = card,
+                                    fg = fg,
+                                    height = quickHeight
+                                ) {
+
+                                    context.startActivity(
+                                        Intent(
+                                            "android.intent.action.VIEW_DOWNLOADS"
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier =
+                                Modifier
+                                    .widthIn(max = contentMaxWidth)
+                                    .fillMaxWidth(),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(10.dp)
                         ) {
 
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_SETTINGS
-                                )
-                            )
-                        }
+                            Quick(
+                                title = "Apps",
+                                card = card,
+                                fg = fg,
+                                height = quickHeight
+                            ) {
+                                status =
+                                    "${installedApps.size} apps found"
+                            }
 
-                        Quick(
-                            title = "Downloads",
-                            card = card,
-                            fg = fg
-                        ) {
+                            Quick(
+                                title = "Files",
+                                card = card,
+                                fg = fg,
+                                height = quickHeight
+                            ) {
 
-                            context.startActivity(
-                                Intent(
-                                    "android.intent.action.VIEW_DOWNLOADS"
+                                context.startActivity(
+                                    Intent(
+                                        Intent.ACTION_OPEN_DOCUMENT
+                                    ).apply {
+                                        type = "*/*"
+
+                                        addCategory(
+                                            Intent.CATEGORY_OPENABLE
+                                        )
+                                    }
                                 )
-                            )
+                            }
+
+                            Quick(
+                                title = "Settings",
+                                card = card,
+                                fg = fg,
+                                height = quickHeight
+                            ) {
+
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_SETTINGS
+                                    )
+                                )
+                            }
+
+                            Quick(
+                                title = "Downloads",
+                                card = card,
+                                fg = fg,
+                                height = quickHeight
+                            ) {
+
+                                context.startActivity(
+                                    Intent(
+                                        "android.intent.action.VIEW_DOWNLOADS"
+                                    )
+                                )
+                            }
                         }
                     }
                 }
@@ -693,6 +786,10 @@ fun AuraApp(context: Context) {
                     Text(
                         text =
                             "Installed apps (${installedApps.size})",
+                        modifier =
+                            Modifier
+                                .widthIn(max = contentMaxWidth)
+                                .fillMaxWidth(),
                         color = fg,
                         fontWeight =
                             FontWeight.Bold,
@@ -709,7 +806,9 @@ fun AuraApp(context: Context) {
 
                     Card(
                         modifier =
-                            Modifier.fillMaxWidth(),
+                            Modifier
+                                .widthIn(max = contentMaxWidth)
+                                .fillMaxWidth(),
                         onClick = {
 
                             if (
@@ -775,13 +874,18 @@ fun AuraApp(context: Context) {
                                     Modifier.width(12.dp)
                             )
 
-                            Column {
+                            Column(
+                                modifier =
+                                    Modifier.weight(1f)
+                            ) {
 
                                 Text(
                                     text = app.name,
                                     color = fg,
                                     fontWeight =
-                                        FontWeight.SemiBold
+                                        FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
 
                                 Text(
@@ -791,7 +895,9 @@ fun AuraApp(context: Context) {
                                         fg.copy(
                                             alpha = 0.5f
                                         ),
-                                    fontSize = 11.sp
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -802,6 +908,10 @@ fun AuraApp(context: Context) {
 
                     Text(
                         text = "Recent commands",
+                        modifier =
+                            Modifier
+                                .widthIn(max = contentMaxWidth)
+                                .fillMaxWidth(),
                         color = fg,
                         fontWeight =
                             FontWeight.Bold,
@@ -813,7 +923,9 @@ fun AuraApp(context: Context) {
 
                     Card(
                         modifier =
-                            Modifier.fillMaxWidth(),
+                            Modifier
+                                .widthIn(max = contentMaxWidth)
+                                .fillMaxWidth(),
                         colors =
                             CardDefaults.cardColors(
                                 containerColor = card
@@ -830,7 +942,7 @@ fun AuraApp(context: Context) {
                         ) {
 
                             Text(
-                                text = "›",
+                                text = ">",
                                 color =
                                     Color(0xFF65D6A3),
                                 fontSize = 22.sp
@@ -843,7 +955,9 @@ fun AuraApp(context: Context) {
 
                             Text(
                                 text = recent[index],
-                                color = fg
+                                color = fg,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -859,7 +973,9 @@ fun OrbCard(
     listening: Boolean,
     card: Color,
     fg: Color,
-    status: String
+    status: String,
+    modifier: Modifier = Modifier,
+    orbSize: Dp = 118.dp
 ) {
 
     val infiniteTransition =
@@ -883,7 +999,7 @@ fun OrbCard(
 
     Card(
         modifier =
-            Modifier.fillMaxWidth(),
+            modifier,
         shape =
             RoundedCornerShape(28.dp),
         colors =
@@ -904,7 +1020,7 @@ fun OrbCard(
             Box(
                 modifier =
                     Modifier
-                        .size(118.dp)
+                        .size(orbSize)
                         .scale(pulse)
                         .background(
                             brush =
@@ -925,12 +1041,15 @@ fun OrbCard(
                 Text(
                     text =
                         if (listening) {
-                            "●"
+                            "ON"
                         } else {
-                            "✦"
+                            "AI"
                         },
                     color = Color.White,
-                    fontSize = 30.sp
+                    fontSize = 20.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                    maxLines = 1
                 )
             }
 
@@ -949,14 +1068,18 @@ fun OrbCard(
                 color = fg,
                 fontWeight =
                     FontWeight.Bold,
-                fontSize = 18.sp
+                fontSize = 18.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
 
             Text(
                 text =
                     "What can I do for you?",
                 color =
-                    fg.copy(alpha = 0.55f)
+                    fg.copy(alpha = 0.55f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -967,6 +1090,7 @@ fun RowScope.Quick(
     title: String,
     card: Color,
     fg: Color,
+    height: Dp = 92.dp,
     onClick: () -> Unit
 ) {
 
@@ -975,7 +1099,7 @@ fun RowScope.Quick(
         modifier =
             Modifier
                 .weight(1f)
-                .height(92.dp),
+                .height(height),
         colors =
             CardDefaults.cardColors(
                 containerColor = card
@@ -995,7 +1119,9 @@ fun RowScope.Quick(
                 text = title,
                 color = fg,
                 fontWeight =
-                    FontWeight.SemiBold
+                    FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

@@ -14,6 +14,8 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.TextView
 import android.view.animation.AccelerateDecelerateInterpolator
+import kotlin.math.PI
+import kotlin.math.sin
 
 class AuraEdgeOverlay(
     private val context: Context
@@ -141,8 +143,12 @@ private class AuraEdgeGlowView(
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
         }
+    private val dotPaint =
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
 
-    private var pulse = 0.35f
+    private var phase = 0f
     private var animator: ValueAnimator? = null
 
     fun start() {
@@ -151,13 +157,13 @@ private class AuraEdgeGlowView(
         }
 
         animator =
-            ValueAnimator.ofFloat(0.35f, 1f).apply {
-                duration = 1150L
+            ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 2200L
                 repeatCount = ValueAnimator.INFINITE
-                repeatMode = ValueAnimator.REVERSE
+                repeatMode = ValueAnimator.RESTART
                 interpolator = AccelerateDecelerateInterpolator()
                 addUpdateListener {
-                    pulse = it.animatedValue as Float
+                    phase = it.animatedValue as Float
                     invalidate()
                 }
                 start()
@@ -171,6 +177,11 @@ private class AuraEdgeGlowView(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+
+        val pulse =
+            0.55f +
+                0.45f *
+                sin(phase * PI.toFloat() * 2f)
 
         drawGlowStroke(
             canvas = canvas,
@@ -195,6 +206,8 @@ private class AuraEdgeGlowView(
             alpha = (160 + pulse * 80).toInt(),
             color = Color.rgb(88, 166, 255)
         )
+
+        drawMovingDots(canvas)
     }
 
     private fun drawGlowStroke(
@@ -220,6 +233,106 @@ private class AuraEdgeGlowView(
             44f,
             44f,
             paint
+        )
+    }
+
+    private fun drawMovingDots(canvas: Canvas) {
+        val dotCount = 10
+        val inset = 28f
+
+        repeat(dotCount) { index ->
+            val progress =
+                (phase + index / dotCount.toFloat()) % 1f
+            val radius =
+                if (index % 3 == 0) {
+                    6.5f
+                } else {
+                    4.5f
+                }
+            val alpha =
+                if (index % 2 == 0) {
+                    230
+                } else {
+                    150
+                }
+            val color =
+                when (index % 3) {
+                    0 -> Color.rgb(0, 229, 255)
+                    1 -> Color.rgb(88, 166, 255)
+                    else -> Color.rgb(139, 92, 246)
+                }
+
+            drawEdgeDot(
+                canvas = canvas,
+                progress = progress,
+                inset = inset,
+                radius = radius,
+                color = color,
+                alpha = alpha
+            )
+        }
+    }
+
+    private fun drawEdgeDot(
+        canvas: Canvas,
+        progress: Float,
+        inset: Float,
+        radius: Float,
+        color: Int,
+        alpha: Int
+    ) {
+        val availableWidth = width - inset * 2f
+        val availableHeight = height - inset * 2f
+
+        if (availableWidth <= 0f || availableHeight <= 0f) {
+            return
+        }
+
+        val perimeter =
+            availableWidth * 2f + availableHeight * 2f
+        var distance = perimeter * progress
+
+        val x: Float
+        val y: Float
+
+        if (distance <= availableWidth) {
+            x = inset + distance
+            y = inset
+        } else {
+            distance -= availableWidth
+
+            if (distance <= availableHeight) {
+                x = width - inset
+                y = inset + distance
+            } else {
+                distance -= availableHeight
+
+                if (distance <= availableWidth) {
+                    x = width - inset - distance
+                    y = height - inset
+                } else {
+                    distance -= availableWidth
+                    x = inset
+                    y = height - inset - distance
+                }
+            }
+        }
+
+        dotPaint.color = color
+        dotPaint.alpha = (alpha * 0.25f).toInt()
+        canvas.drawCircle(
+            x,
+            y,
+            radius * 2.6f,
+            dotPaint
+        )
+
+        dotPaint.alpha = alpha
+        canvas.drawCircle(
+            x,
+            y,
+            radius,
+            dotPaint
         )
     }
 }
