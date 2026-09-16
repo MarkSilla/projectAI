@@ -84,18 +84,37 @@ class AuraService : Service() {
 
     private fun startAura() {
         if (isActive) {
+            publishState(
+                status =
+                    if (currentMode == ListeningMode.COMMAND_MODE) {
+                        "AURA is listening..."
+                    } else {
+                        "Waiting for \"Hey AURA\""
+                    },
+                listening = currentMode == ListeningMode.COMMAND_MODE
+            )
             return
         }
 
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
             PackageManager.PERMISSION_GRANTED
         ) {
+            publishState(
+                status = "Microphone permission is required",
+                listening = false,
+                active = false
+            )
             showToast("Microphone permission is required")
             stopSelf()
             return
         }
 
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            publishState(
+                status = "Speech recognition is unavailable",
+                listening = false,
+                active = false
+            )
             showToast("Speech recognition is unavailable")
             stopSelf()
             return
@@ -111,6 +130,11 @@ class AuraService : Service() {
         handler.removeCallbacks(commandStartRunnable)
         overlay.hide()
         destroyRecognizer()
+        publishState(
+            status = "AURA stopped",
+            listening = false,
+            active = false
+        )
 
         try {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -126,10 +150,16 @@ class AuraService : Service() {
 
         currentMode = ListeningMode.WAKE_MODE
         overlay.hide()
+        publishState(
+            status = "Waiting for \"Hey AURA\"",
+            listening = false
+        )
         startRecognizer(ListeningMode.WAKE_MODE)
     }
 
-    private fun enterCommandMode() {
+    private fun enterCommandMode(
+        inlineCommand: String? = null
+    ) {
         if (!isActive || currentMode != ListeningMode.WAKE_MODE) {
             return
         }
@@ -139,7 +169,23 @@ class AuraService : Service() {
         handler.removeCallbacks(commandStartRunnable)
         destroyRecognizer()
         overlay.show("AURA is listening...")
-        handler.postDelayed(commandStartRunnable, 300L)
+        publishState(
+            status = "AURA is listening...",
+            listening = true
+        )
+
+        if (inlineCommand.isNullOrBlank()) {
+            handler.postDelayed(commandStartRunnable, 300L)
+        } else {
+            handler.postDelayed(
+                {
+                    handleCommandResults(
+                        listOf(inlineCommand)
+                    )
+                },
+                450L
+            )
+        }
     }
 
     private fun startRecognizer(mode: ListeningMode) {
@@ -150,6 +196,11 @@ class AuraService : Service() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
             PackageManager.PERMISSION_GRANTED
         ) {
+            publishState(
+                status = "Microphone permission is required",
+                listening = false,
+                active = false
+            )
             stopAura()
             stopSelf()
             return
@@ -210,14 +261,34 @@ class AuraService : Service() {
         recognizer = null
     }
 
-    private fun handleWakeResults(results: List<String>) {
+    private fun handleWakeResults(
+        results: List<String>,
+        allowInlineCommand: Boolean = false
+    ) {
         if (currentMode != ListeningMode.WAKE_MODE) {
             return
         }
 
-        if (results.any(::containsWakeWord)) {
+        val wakeResult =
+            results.firstOrNull(::containsWakeWord)
+
+        if (wakeResult != null) {
+            val inlineCommand =
+                if (
+                    allowInlineCommand &&
+                    !extractOpenCommand(wakeResult).isNullOrBlank()
+                ) {
+                    wakeResult
+                } else {
+                    null
+                }
+
             rapidRestartCount = 0
-            enterCommandMode()
+            publishState(
+                status = "Wake phrase detected",
+                listening = true
+            )
+            enterCommandMode(inlineCommand)
         }
     }
 
@@ -257,6 +328,10 @@ class AuraService : Service() {
         }
 
         if (openApp(this, app)) {
+            publishState(
+                status = "Opening ${app.name}",
+                listening = false
+            )
             overlay.hide()
             scheduleWakeRestart(800L)
         } else {
@@ -266,6 +341,10 @@ class AuraService : Service() {
 
     private fun finishCommandWithMessage(message: String) {
         overlay.setMessage(message)
+        publishState(
+            status = message,
+            listening = false
+        )
         showToast(message)
         handler.postDelayed(
             {
@@ -280,9 +359,17 @@ class AuraService : Service() {
         destroyRecognizer()
 
         if (mode == ListeningMode.WAKE_MODE) {
+            publishState(
+                status = "Restarting wake listener",
+                listening = false
+            )
             scheduleWakeRestart(nextWakeRestartDelay())
         } else {
             overlay.hide()
+            publishState(
+                status = "Returning to wake mode",
+                listening = false
+            )
             scheduleWakeRestart(700L)
         }
     }
@@ -339,7 +426,31 @@ class AuraService : Service() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun buildNotification(): Notification {
+    private fun publishState(
+        status: String,
+        listening: Boolean,
+        active: Boolean = isActive
+    ) {
+        AuraServiceState.publish(
+            context = this,
+            active = active,
+            status = status,
+            listening = listening,
+            mode = currentMode.name
+        )
+
+        if (active) {
+            getSystemService(NotificationManager::class.java)
+                .notify(
+                    NOTIFICATION_ID,
+                    buildNotification(status)
+                )
+        }
+    }
+
+    private fun buildNotification(
+        text: String = "Say \"Hey AURA\" to activate"
+    ): Notification {
         val contentIntent =
             Intent(this, MainActivity::class.java).apply {
                 flags =
@@ -362,7 +473,7 @@ class AuraService : Service() {
         )
             .setSmallIcon(R.drawable.aura_icon)
             .setContentTitle("AURA is active")
-            .setContentText("Say \"Hey AURA\" to activate")
+            .setContentText(text)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -381,9 +492,38 @@ class AuraService : Service() {
     private inner class AuraRecognitionListener(
         private val listenerMode: ListeningMode
     ) : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) = Unit
+        override fun onReadyForSpeech(params: Bundle?) {
+            if (!isActive || listenerMode != currentMode) {
+                return
+            }
 
-        override fun onBeginningOfSpeech() = Unit
+            when (listenerMode) {
+                ListeningMode.WAKE_MODE ->
+                    publishState(
+                        status = "Waiting for \"Hey AURA\"",
+                        listening = false
+                    )
+
+                ListeningMode.COMMAND_MODE ->
+                    publishState(
+                        status = "AURA is listening...",
+                        listening = true
+                    )
+            }
+        }
+
+        override fun onBeginningOfSpeech() {
+            if (!isActive || listenerMode != currentMode) {
+                return
+            }
+
+            if (listenerMode == ListeningMode.COMMAND_MODE) {
+                publishState(
+                    status = "Listening for command",
+                    listening = true
+                )
+            }
+        }
 
         override fun onRmsChanged(rmsdB: Float) = Unit
 
@@ -423,7 +563,10 @@ class AuraService : Service() {
 
             when (listenerMode) {
                 ListeningMode.WAKE_MODE -> {
-                    handleWakeResults(matches)
+                    handleWakeResults(
+                        results = matches,
+                        allowInlineCommand = true
+                    )
                     if (currentMode == ListeningMode.WAKE_MODE) {
                         scheduleWakeRestart(500L)
                     }

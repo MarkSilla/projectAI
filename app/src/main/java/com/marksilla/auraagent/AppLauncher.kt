@@ -32,33 +32,84 @@ fun findApp(
     requestedName: String
 ): InstalledApp? {
 
-    val query = requestedName
-        .trim()
-        .lowercase()
+    val query = normalizeAppText(requestedName)
 
-    if (query.isBlank()) {
+    if (query.spaced.isBlank()) {
         return null
     }
 
+    val queryKeys =
+        listOf(query) + appAliases(query.spaced)
+            .map(::normalizeAppText)
+
     // Exact match
     apps.firstOrNull {
-        it.name.lowercase() == query
+        val appName = normalizeAppText(it.name)
+        queryKeys.any { key ->
+            appName.spaced == key.spaced ||
+                appName.compact == key.compact
+        }
     }?.let {
         return it
     }
 
     // Starts with
     apps.firstOrNull {
-        it.name.lowercase().startsWith(query)
+        val appName = normalizeAppText(it.name)
+        queryKeys.any { key ->
+            appName.spaced.startsWith(key.spaced) ||
+                appName.compact.startsWith(key.compact)
+        }
     }?.let {
         return it
     }
 
     // Contains
     return apps.firstOrNull {
-        it.name.lowercase().contains(query)
+        val appName = normalizeAppText(it.name)
+        queryKeys.any { key ->
+            appName.spaced.contains(key.spaced) ||
+                appName.compact.contains(key.compact)
+        }
     }
 }
+
+private data class AppSearchText(
+    val spaced: String,
+    val compact: String
+)
+
+private fun normalizeAppText(text: String): AppSearchText {
+    val spaced =
+        text
+            .lowercase()
+            .replace("&", " and ")
+            .replace(Regex("[^a-z0-9 ]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+    return AppSearchText(
+        spaced = spaced,
+        compact = spaced.replace(" ", "")
+    )
+}
+
+private fun appAliases(query: String): List<String> =
+    when (query) {
+        "fb",
+        "face book" -> listOf("facebook")
+
+        "ig",
+        "insta" -> listOf("instagram")
+
+        "yt",
+        "you tube" -> listOf("youtube")
+
+        "msgs",
+        "messenger app" -> listOf("messenger")
+
+        else -> emptyList()
+    }
 
 fun openApp(
     context: Context,

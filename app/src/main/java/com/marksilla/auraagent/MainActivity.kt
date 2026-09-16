@@ -1,8 +1,10 @@
 package com.marksilla.auraagent
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
@@ -26,6 +28,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
@@ -57,11 +61,21 @@ fun AuraApp(context: Context) {
     }
 
     var auraEnabled by remember {
-        mutableStateOf(false)
+        mutableStateOf(
+            AuraServiceState.isActive(context)
+        )
+    }
+
+    var auraListening by remember {
+        mutableStateOf(
+            AuraServiceState.isListening(context)
+        )
     }
 
     var status by remember {
-        mutableStateOf("Ready")
+        mutableStateOf(
+            AuraServiceState.lastStatus(context)
+        )
     }
 
     var recent by remember {
@@ -96,7 +110,7 @@ fun AuraApp(context: Context) {
         )
 
         auraEnabled = true
-        status = "AURA enabled"
+        status = "Starting AURA..."
     }
 
     fun stopAuraService() {
@@ -108,6 +122,7 @@ fun AuraApp(context: Context) {
         )
 
         auraEnabled = false
+        auraListening = false
         listening = false
         status = "AURA stopped"
     }
@@ -222,6 +237,54 @@ fun AuraApp(context: Context) {
         startAuraService()
     }
 
+    DisposableEffect(context) {
+        val receiver =
+            object : BroadcastReceiver() {
+                override fun onReceive(
+                    receiverContext: Context?,
+                    intent: Intent?
+                ) {
+                    if (intent?.action != AuraServiceState.ACTION_STATUS) {
+                        return
+                    }
+
+                    auraEnabled =
+                        intent.getBooleanExtra(
+                            AuraServiceState.EXTRA_ACTIVE,
+                            auraEnabled
+                        )
+
+                    auraListening =
+                        intent.getBooleanExtra(
+                            AuraServiceState.EXTRA_LISTENING,
+                            false
+                        )
+
+                    status =
+                        intent.getStringExtra(
+                            AuraServiceState.EXTRA_STATUS
+                        ) ?: status
+                }
+            }
+
+        ContextCompat.registerReceiver(
+            context,
+            receiver,
+            IntentFilter(AuraServiceState.ACTION_STATUS),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+
+        auraEnabled = AuraServiceState.isActive(context)
+        auraListening = AuraServiceState.isListening(context)
+        status = AuraServiceState.lastStatus(context)
+
+        onDispose {
+            runCatching {
+                context.unregisterReceiver(receiver)
+            }
+        }
+    }
+
     val bg =
         if (dark) {
             Color(0xFF0B0D12)
@@ -313,18 +376,67 @@ fun AuraApp(context: Context) {
             color = bg
         ) {
 
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(20.dp),
-                verticalArrangement =
-                    Arrangement.spacedBy(18.dp)
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxSize()
             ) {
+                val compact = maxWidth < 420.dp
+                val contentMaxWidth =
+                    if (maxWidth < 720.dp) {
+                        maxWidth
+                    } else {
+                        680.dp
+                    }
+                val horizontalPadding =
+                    if (compact) {
+                        14.dp
+                    } else {
+                        20.dp
+                    }
+                val verticalSpacing =
+                    if (compact) {
+                        14.dp
+                    } else {
+                        18.dp
+                    }
+                val actionHeight =
+                    if (compact) {
+                        52.dp
+                    } else {
+                        56.dp
+                    }
+                val quickHeight =
+                    if (compact) {
+                        74.dp
+                    } else {
+                        92.dp
+                    }
+                val orbSize =
+                    if (compact) {
+                        96.dp
+                    } else {
+                        118.dp
+                    }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding =
+                        PaddingValues(
+                            horizontal = horizontalPadding,
+                            vertical = 20.dp
+                        ),
+                    horizontalAlignment =
+                        Alignment.CenterHorizontally,
+                    verticalArrangement =
+                        Arrangement.spacedBy(verticalSpacing)
+                ) {
 
                 item {
 
                     Row(
                         modifier =
-                            Modifier.fillMaxWidth(),
+                            Modifier
+                                .widthIn(max = contentMaxWidth)
+                                .fillMaxWidth(),
                         horizontalArrangement =
                             Arrangement.SpaceBetween,
                         verticalAlignment =
@@ -338,7 +450,9 @@ fun AuraApp(context: Context) {
                                 color = fg,
                                 fontSize = 25.sp,
                                 fontWeight =
-                                    FontWeight.Bold
+                                    FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
 
                             Text(
@@ -346,7 +460,9 @@ fun AuraApp(context: Context) {
                                     "Your phone, ready to help.",
                                 color =
                                     fg.copy(alpha = 0.6f),
-                                fontSize = 13.sp
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
@@ -359,11 +475,14 @@ fun AuraApp(context: Context) {
                             Text(
                                 text =
                                     if (dark) {
-                                        "☀"
+                                        "LIGHT"
                                     } else {
-                                        "☾"
+                                        "DARK"
                                     },
-                                fontSize = 22.sp
+                                fontSize = 12.sp,
+                                fontWeight =
+                                    FontWeight.Bold,
+                                maxLines = 1
                             )
                         }
                     }
@@ -372,10 +491,15 @@ fun AuraApp(context: Context) {
                 item {
 
                     OrbCard(
-                        listening = listening,
+                        listening = listening || auraListening,
                         card = card,
                         fg = fg,
-                        status = status
+                        status = status,
+                        modifier =
+                            Modifier
+                                .widthIn(max = contentMaxWidth)
+                                .fillMaxWidth(),
+                        orbSize = orbSize
                     )
                 }
 
@@ -384,8 +508,9 @@ fun AuraApp(context: Context) {
                     Button(
                         modifier =
                             Modifier
+                                .widthIn(max = contentMaxWidth)
                                 .fillMaxWidth()
-                                .height(56.dp),
+                                .height(actionHeight),
                         shape =
                             RoundedCornerShape(18.dp),
                         onClick = {
@@ -417,7 +542,9 @@ fun AuraApp(context: Context) {
                             command = it
                         },
                         modifier =
-                            Modifier.fillMaxWidth(),
+                            Modifier
+                                .widthIn(max = contentMaxWidth)
+                                .fillMaxWidth(),
                         placeholder = {
                             Text(
                                 "Try: Open Facebook"
@@ -449,8 +576,9 @@ fun AuraApp(context: Context) {
                     Button(
                         modifier =
                             Modifier
+                                .widthIn(max = contentMaxWidth)
                                 .fillMaxWidth()
-                                .height(56.dp),
+                                .height(actionHeight),
                         shape =
                             RoundedCornerShape(18.dp),
                         onClick = {
@@ -719,6 +847,7 @@ fun AuraApp(context: Context) {
                             )
                         }
                     }
+                }
                 }
             }
         }

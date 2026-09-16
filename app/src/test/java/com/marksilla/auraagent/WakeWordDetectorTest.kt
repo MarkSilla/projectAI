@@ -105,4 +105,40 @@ class WakeWordDetectorTest {
             extractOpenCommand("AURA paki buksan ang YouTube naman")
         )
     }
+
+    @Test
+    fun matchesAppsWithSpeechRecognizerNameVariants() {
+        val apps =
+            listOf(
+                InstalledApp(
+                    name = "Facebook",
+                    packageName = "com.facebook.katana"
+                ),
+                InstalledApp(
+                    name = "Messenger",
+                    packageName = "com.facebook.orca"
+                ),
+                InstalledApp(
+                    name = "YouTube",
+                    packageName = "com.google.android.youtube"
+                )
+            )
+
+        assertEquals(
+            "Facebook",
+            findApp(apps, "face book")?.name
+        )
+        assertEquals(
+            "Facebook",
+            findApp(apps, "fb")?.name
+        )
+        assertEquals(
+            "Messenger",
+            findApp(apps, "mess")?.name
+        )
+        assertEquals(
+            "YouTube",
+            findApp(apps, "you tube")?.name
+        )
+    }
 }

@@ -255,11 +255,14 @@ private fun cleanAppName(appName: String): String {
         .replace(Regex("\\s+"), " ")
 
     val trailingWords = listOf(
+        " application",
+        " app",
         " please",
         " for me",
         " naman",
         " nga",
-        " na"
+        " na",
+        " now"
     )
 
     for (suffix in trailingWords) {
