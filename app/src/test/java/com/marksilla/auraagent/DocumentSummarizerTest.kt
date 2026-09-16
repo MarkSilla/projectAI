@@ -104,7 +104,10 @@ class DocumentSummarizerTest {
                 keyPoints = listOf("Focus on the main idea."),
                 reviewerNotes = listOf("Review the evidence."),
                 actionItems = listOf("Submit the reviewer."),
-                keywords = listOf("study", "reviewer")
+                keywords = listOf("study", "reviewer"),
+                executiveSummary = "The document covers the main study findings.",
+                overallAssessment = "Stable review: the main findings are coherent and easy to follow.",
+                confidenceScore = 84
             )
 
         val markdown = formatReviewerMarkdown(summary)
@@ -127,7 +130,9 @@ class DocumentSummarizerTest {
         assertTrue(shouldAttemptOcr(sparseText))
         assertFalse(
             shouldAttemptOcr(
-                "AURA can review the PDF and highlight the main points for the reviewer."
+                "AURA can review this PDF and highlight the main points for the reviewer. " +
+                    "The extracted text contains enough words and readable content for a reliable review summary. " +
+                    "It includes the findings, evidence, recommendations, deadlines, risks, and next steps needed for analysis."
             )
         )
     }
