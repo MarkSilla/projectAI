@@ -68,17 +68,15 @@ class OnlineAiClient(
                 setRequestProperty("Content-Type", "application/json")
             }
 
-        return runCatching {
-            connection.use { request ->
-                request.outputStream.use { output ->
-                    output.write(body.toByteArray(Charsets.UTF_8))
-                }
+        return try {
+            connection.outputStream.use { output ->
+                output.write(body.toByteArray(Charsets.UTF_8))
+            }
 
-                if (request.responseCode !in 200..299) {
-                    return@runCatching null
-                }
-
-                val response = request.inputStream.bufferedReader().use { it.readText() }
+            if (connection.responseCode !in 200..299) {
+                null
+            } else {
+                val response = connection.inputStream.bufferedReader().use { it.readText() }
                 JSONObject(response)
                     .optJSONArray("choices")
                     ?.optJSONObject(0)
@@ -87,7 +85,11 @@ class OnlineAiClient(
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
             }
-        }.getOrNull()
+        } catch (_: Exception) {
+            null
+        } finally {
+            connection.disconnect()
+        }
     }
 
     companion object {

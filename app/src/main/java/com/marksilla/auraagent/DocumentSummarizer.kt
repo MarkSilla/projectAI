@@ -1147,27 +1147,27 @@ private fun buildActionItems(
         .distinctBy {
             normalizeForComparison(it)
         }
-
-    private fun extractDeadline(sentence: String): String? {
-        val patterns =
-            listOf(
-                "(?:by|before|on|deadline(?: is|:)?)\\s+((?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)(?:\\s+morning|\\s+afternoon|\\s+evening)?)",
-                "(?:by|before|on|deadline(?: is|:)?)\\s+((?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{1,2}(?:,?\\s+\\d{4})?)",
-                "(?:by|before|on|deadline(?: is|:)?)\\s+(\\d{1,2}[/-]\\d{1,2}(?:[/-]\\d{2,4})?)",
-                "(?:by|before|on|deadline(?: is|:)?)\\s+(next\\s+(?:week|month|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday))"
-            )
-
-        return patterns
-            .asSequence()
-            .map { Regex(it, RegexOption.IGNORE_CASE).find(sentence) }
-            .filterNotNull()
-            .mapNotNull { it.groupValues.getOrNull(1)?.trim() }
-            .firstOrNull()
-    }
         .take(limit)
         .map {
             it.compactSentence()
         }
+}
+
+private fun extractDeadline(sentence: String): String? {
+    val patterns =
+        listOf(
+            "(?:by|before|on|deadline(?: is|:)?)\\s+((?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)(?:\\s+morning|\\s+afternoon|\\s+evening)?)",
+            "(?:by|before|on|deadline(?: is|:)?)\\s+((?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{1,2}(?:,?\\s+\\d{4})?)",
+            "(?:by|before|on|deadline(?: is|:)?)\\s+(\\d{1,2}[/-]\\d{1,2}(?:[/-]\\d{2,4})?)",
+            "(?:by|before|on|deadline(?: is|:)?)\\s+(next\\s+(?:week|month|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday))"
+        )
+
+    return patterns
+        .asSequence()
+        .map { Regex(it, RegexOption.IGNORE_CASE).find(sentence) }
+        .filterNotNull()
+        .mapNotNull { it.groupValues.getOrNull(1)?.trim() }
+        .firstOrNull()
 }
 
 private fun buildExecutiveSummary(
