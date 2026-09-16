@@ -4,12 +4,14 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -54,6 +56,10 @@ fun AuraApp(context: Context) {
         mutableStateOf(false)
     }
 
+    var auraEnabled by remember {
+        mutableStateOf(false)
+    }
+
     var status by remember {
         mutableStateOf("Ready")
     }
@@ -72,11 +78,50 @@ fun AuraApp(context: Context) {
         getInstalledApps(context)
     }
 
-    val permissionLauncher =
+    fun overlaySettingsIntent(): Intent =
+        Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:${context.packageName}")
+        )
+
+    fun startAuraService() {
+        ContextCompat.startForegroundService(
+            context,
+            Intent(
+                context,
+                AuraService::class.java
+            ).apply {
+                action = AuraService.ACTION_START
+            }
+        )
+
+        auraEnabled = true
+        status = "AURA enabled"
+    }
+
+    fun stopAuraService() {
+        context.stopService(
+            Intent(
+                context,
+                AuraService::class.java
+            )
+        )
+
+        auraEnabled = false
+        listening = false
+        status = "AURA stopped"
+    }
+
+    val overlaySettingsLauncher =
         rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.RequestPermission()
+            contract = ActivityResultContracts.StartActivityForResult()
         ) {
-            // Permission result handled here.
+            if (Settings.canDrawOverlays(context)) {
+                startAuraService()
+            } else {
+                auraEnabled = false
+                status = "Overlay permission is required"
+            }
         }
 
     val voiceLauncher =
@@ -99,6 +144,83 @@ fun AuraApp(context: Context) {
 
             listening = false
         }
+
+    fun startManualVoiceInput() {
+        val intent =
+            Intent(
+                "android.speech.action.RECOGNIZE_SPEECH"
+            ).apply {
+
+                putExtra(
+                    "android.speech.extra.LANGUAGE_MODEL",
+                    "free_form"
+                )
+
+                putExtra(
+                    "android.speech.extra.LANGUAGE",
+                    Locale.getDefault()
+                )
+            }
+
+        listening = true
+
+        voiceLauncher.launch(intent)
+    }
+
+    val auraPermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            if (!granted) {
+                auraEnabled = false
+                status = "Microphone permission is required"
+                return@rememberLauncherForActivityResult
+            }
+
+            if (Settings.canDrawOverlays(context)) {
+                startAuraService()
+            } else {
+                status = "Overlay permission is required"
+                overlaySettingsLauncher.launch(
+                    overlaySettingsIntent()
+                )
+            }
+        }
+
+    val manualVoicePermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            if (granted) {
+                startManualVoiceInput()
+            } else {
+                listening = false
+                status = "Microphone permission is required"
+            }
+        }
+
+    fun enableAura() {
+        if (
+            context.checkSelfPermission(
+                Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            auraPermissionLauncher.launch(
+                Manifest.permission.RECORD_AUDIO
+            )
+            return
+        }
+
+        if (!Settings.canDrawOverlays(context)) {
+            status = "Overlay permission is required"
+            overlaySettingsLauncher.launch(
+                overlaySettingsIntent()
+            )
+            return
+        }
+
+        startAuraService()
+    }
 
     val bg =
         if (dark) {
@@ -259,6 +381,36 @@ fun AuraApp(context: Context) {
 
                 item {
 
+                    Button(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                        shape =
+                            RoundedCornerShape(18.dp),
+                        onClick = {
+                            if (auraEnabled) {
+                                stopAuraService()
+                            } else {
+                                enableAura()
+                            }
+                        }
+                    ) {
+
+                        Text(
+                            text =
+                                if (auraEnabled) {
+                                    "Stop AURA"
+                                } else {
+                                    "Enable AURA"
+                                },
+                            fontSize = 16.sp
+                        )
+                    }
+                }
+
+                item {
+
                     OutlinedTextField(
                         value = command,
                         onValueChange = {
@@ -309,32 +461,14 @@ fun AuraApp(context: Context) {
                                 ) != PackageManager.PERMISSION_GRANTED
                             ) {
 
-                                permissionLauncher.launch(
+                                manualVoicePermissionLauncher.launch(
                                     Manifest.permission.RECORD_AUDIO
                                 )
 
                                 return@Button
                             }
 
-                            val intent =
-                                Intent(
-                                    "android.speech.action.RECOGNIZE_SPEECH"
-                                ).apply {
-
-                                    putExtra(
-                                        "android.speech.extra.LANGUAGE_MODEL",
-                                        "free_form"
-                                    )
-
-                                    putExtra(
-                                        "android.speech.extra.LANGUAGE",
-                                        Locale.getDefault()
-                                    )
-                                }
-
-                            listening = true
-
-                            voiceLauncher.launch(intent)
+                            startManualVoiceInput()
                         }
                     ) {
 

@@ -95,6 +95,8 @@ fun extractOpenCommand(command: String): String? {
         "open app ",
         "open for me ",
         "open it for me ",
+        "open ang ",
+        "open yung ",
         "open ",
         "launch the app ",
         "launch app ",

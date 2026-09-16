@@ -7,5 +7,5 @@ fun containsWakeWord(text: String): Boolean {
         .replace(Regex("\\s+"), " ")
         .trim()
 
-    return normalized.contains("hey aura")
+    return Regex("\\bhey aura\\b").containsMatchIn(normalized)
 }
