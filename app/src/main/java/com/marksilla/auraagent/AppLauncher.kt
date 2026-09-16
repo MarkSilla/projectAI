@@ -40,49 +40,24 @@ fun findApp(
         return null
     }
 
-    // Exact match first
+    // Exact match
     apps.firstOrNull {
         it.name.lowercase() == query
     }?.let {
         return it
     }
 
-    // Then starts-with match
+    // Starts with
     apps.firstOrNull {
         it.name.lowercase().startsWith(query)
     }?.let {
         return it
     }
 
-    // Finally contains match
+    // Contains
     return apps.firstOrNull {
         it.name.lowercase().contains(query)
     }
-}
-
-fun extractOpenCommand(command: String): String? {
-
-    val cleaned = command
-        .trim()
-        .lowercase()
-
-    val prefixes = listOf(
-        "open ",
-        "launch ",
-        "start ",
-        "run "
-    )
-
-    for (prefix in prefixes) {
-        if (cleaned.startsWith(prefix)) {
-            return command
-                .trim()
-                .substring(prefix.length)
-                .trim()
-        }
-    }
-
-    return null
 }
 
 fun openApp(
@@ -97,7 +72,10 @@ fun openApp(
 
     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-    context.startActivity(intent)
-
-    return true
+    return try {
+        context.startActivity(intent)
+        true
+    } catch (e: Exception) {
+        false
+    }
 }
