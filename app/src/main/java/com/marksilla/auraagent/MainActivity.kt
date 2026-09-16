@@ -70,6 +70,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -677,6 +679,7 @@ fun AuraApp(
     var pendingDeviceCommand by remember {
         mutableStateOf<DeviceCommand?>(null)
     }
+    val clipboardManager = LocalClipboardManager.current
 
     fun overlaySettingsIntent(): Intent =
         Intent(
@@ -1482,10 +1485,8 @@ fun AuraApp(
                                     chatInput = ""
                                 },
                                 onCopyMessage = { text ->
-                                    val clipboardManager =
-                                        androidx.compose.ui.platform.LocalClipboardManager.current
                                     clipboardManager.setText(
-                                        androidx.compose.ui.text.AnnotatedString(text)
+                                        AnnotatedString(text)
                                     )
                                     status = "Copied response"
                                 },
