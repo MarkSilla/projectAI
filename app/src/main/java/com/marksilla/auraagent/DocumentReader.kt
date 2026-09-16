@@ -1,10 +1,10 @@
+```kotlin
 package com.marksilla.auraagent
 
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -37,6 +37,7 @@ fun readDocumentTextFromUri(
             .getType(uri)
             .orEmpty()
             .lowercase(Locale.US)
+
     val lowerName =
         displayName.lowercase(Locale.US)
 
@@ -237,6 +238,7 @@ private fun readPdfWithOcr(
             buildString {
                 for (pageIndex in 0 until renderer.pageCount) {
                     val page = renderer.openPage(pageIndex)
+
                     val bitmap =
                         Bitmap.createBitmap(
                             page.width,
@@ -252,14 +254,25 @@ private fun readPdfWithOcr(
                             PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY
                         )
 
-                        val image = InputImage.fromBitmap(bitmap, 0)
-                        val result = Tasks.await(recognizer.processImage(image))
-                        val detectedText = result.text.trim()
+                        val image =
+                            InputImage.fromBitmap(
+                                bitmap,
+                                0
+                            )
+
+                        val result =
+                            Tasks.await(
+                                recognizer.process(image)
+                            )
+
+                        val detectedText =
+                            result.text.trim()
 
                         if (detectedText.isNotBlank()) {
                             if (isNotEmpty()) {
                                 append("\n\n")
                             }
+
                             append(detectedText)
                         }
                     } finally {
@@ -271,8 +284,7 @@ private fun readPdfWithOcr(
                         break
                     }
                 }
-            }
-                .take(maxChars)
+            }.take(maxChars)
         }
     }
 }
@@ -319,7 +331,9 @@ private fun readPlainDocument(
                     break
                 }
 
-                val remaining = maxChars - builder.length
+                val remaining =
+                    maxChars - builder.length
+
                 builder.append(
                     buffer,
                     0,
@@ -348,19 +362,24 @@ private fun ZipInputStream.readEntryBytes(
             break
         }
 
-        val remaining = maxChars * 4 - total
+        val remaining =
+            maxChars * 4 - total
+
         output.write(
             buffer,
             0,
             minOf(read, remaining)
         )
+
         total += read
     }
 
     return output.toByteArray()
 }
 
-private fun extractWordXmlText(bytes: ByteArray): String {
+private fun extractWordXmlText(
+    bytes: ByteArray
+): String {
     if (bytes.isEmpty()) {
         return ""
     }
@@ -370,24 +389,28 @@ private fun extractWordXmlText(bytes: ByteArray): String {
             .newInstance()
             .apply {
                 isNamespaceAware = true
+
                 runCatching {
                     setFeature(
                         XMLConstants.FEATURE_SECURE_PROCESSING,
                         true
                     )
                 }
+
                 runCatching {
                     setFeature(
                         "http://apache.org/xml/features/disallow-doctype-decl",
                         true
                     )
                 }
+
                 runCatching {
                     setFeature(
                         "http://xml.org/sax/features/external-general-entities",
                         false
                     )
                 }
+
                 runCatching {
                     setFeature(
                         "http://xml.org/sax/features/external-parameter-entities",
@@ -400,9 +423,12 @@ private fun extractWordXmlText(bytes: ByteArray): String {
         val document =
             factory
                 .newDocumentBuilder()
-                .parse(ByteArrayInputStream(bytes))
+                .parse(
+                    ByteArrayInputStream(bytes)
+                )
 
         val builder = StringBuilder()
+
         appendWordNodeText(
             node = document.documentElement,
             builder = builder
