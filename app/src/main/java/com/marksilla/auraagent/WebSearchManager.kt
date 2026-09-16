@@ -120,7 +120,12 @@ internal fun parseSearchResults(
             val url = decodeHtml(match.groupValues[1]).trim()
             val title = decodeHtml(stripHtml(match.groupValues[2])).trim()
             val snippet = decodeHtml(stripHtml(match.groupValues[3])).trim()
-            val imageUrl = extractImageUrl(match.value)
+            val imageUrl =
+                extractImageUrlNearResult(
+                    html = html,
+                    startIndex = match.range.first,
+                    endIndex = match.range.last
+                )
 
             if (title.isBlank() || url.isBlank()) {
                 null
@@ -168,6 +173,29 @@ private fun extractImageUrl(html: String): String? {
         ?.getOrNull(1)
         ?.trim()
         ?.takeIf { it.isNotBlank() }
+}
+
+private fun extractImageUrlNearResult(
+    html: String,
+    startIndex: Int,
+    endIndex: Int
+): String? {
+    val containerEnd =
+        html.indexOf(
+            "</div>",
+            startIndex = endIndex,
+            ignoreCase = true
+        )
+    val end =
+        if (containerEnd >= 0) {
+            containerEnd + "</div>".length
+        } else {
+            endIndex + 4_000
+        }.coerceAtMost(html.length)
+
+    return extractImageUrl(
+        html.substring(startIndex, end)
+    )
 }
 
 private fun fetchSearchPage(query: String): String {
