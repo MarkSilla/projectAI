@@ -1,4 +1,3 @@
-```kotlin
 package com.marksilla.auraagent
 
 import android.content.Context
@@ -162,8 +161,14 @@ fun suggestedReviewerFileName(title: String): String {
     val base =
         title
             .substringBeforeLast('.')
-            .replace(Regex("[^A-Za-z0-9 _-]"), " ")
-            .replace(Regex("\\s+"), " ")
+            .replace(
+                Regex("[^A-Za-z0-9 _-]"),
+                " "
+            )
+            .replace(
+                Regex("\\s+"),
+                " "
+            )
             .trim()
             .ifBlank {
                 "AURA Reviewer"
@@ -179,7 +184,9 @@ private fun readPdfDocument(
     uri: Uri,
     maxChars: Int
 ): DocumentText {
-    PDFBoxResourceLoader.init(context.applicationContext)
+    PDFBoxResourceLoader.init(
+        context.applicationContext
+    )
 
     val text =
         context.contentResolver
@@ -195,13 +202,16 @@ private fun readPdfDocument(
 
     val finalText =
         if (shouldAttemptOcr(text)) {
-            val ocrText = runCatching {
-                readPdfWithOcr(
-                    context = context,
-                    uri = uri,
-                    maxChars = maxChars
-                )
-            }.getOrElse { "" }
+            val ocrText =
+                runCatching {
+                    readPdfWithOcr(
+                        context = context,
+                        uri = uri,
+                        maxChars = maxChars
+                    )
+                }.getOrElse {
+                    ""
+                }
 
             if (ocrText.isNotBlank()) {
                 ocrText
@@ -237,7 +247,8 @@ private fun readPdfWithOcr(
         PdfRenderer(parcelFileDescriptor).use { renderer ->
             buildString {
                 for (pageIndex in 0 until renderer.pageCount) {
-                    val page = renderer.openPage(pageIndex)
+                    val page =
+                        renderer.openPage(pageIndex)
 
                     val bitmap =
                         Bitmap.createBitmap(
@@ -351,8 +362,12 @@ private fun readPlainDocument(
 private fun ZipInputStream.readEntryBytes(
     maxChars: Int
 ): ByteArray {
-    val output = ByteArrayOutputStream()
-    val buffer = ByteArray(4096)
+    val output =
+        ByteArrayOutputStream()
+
+    val buffer =
+        ByteArray(4096)
+
     var total = 0
 
     while (total < maxChars * 4) {
@@ -427,7 +442,8 @@ private fun extractWordXmlText(
                     ByteArrayInputStream(bytes)
                 )
 
-        val builder = StringBuilder()
+        val builder =
+            StringBuilder()
 
         appendWordNodeText(
             node = document.documentElement,
@@ -436,8 +452,14 @@ private fun extractWordXmlText(
 
         builder
             .toString()
-            .replace(Regex("[ \\t]+"), " ")
-            .replace(Regex("\\n{3,}"), "\n\n")
+            .replace(
+                Regex("[ \\t]+"),
+                " "
+            )
+            .replace(
+                Regex("\\n{3,}"),
+                "\n\n"
+            )
             .trim()
     }.getOrDefault("")
 }
@@ -468,7 +490,8 @@ private fun appendWordNodeText(
         }
     }
 
-    val children = node.childNodes
+    val children =
+        node.childNodes
 
     for (index in 0 until children.length) {
         appendWordNodeText(
