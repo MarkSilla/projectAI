@@ -243,7 +243,7 @@ fun summarizeDocumentText(
     val actionDetails =
         buildActionDetails(
             sentences = sentences,
-            limit = maxActionItems
+            limit = maxOf(maxActionItems, 6)
         )
 
     return DocumentSummary(
@@ -372,7 +372,7 @@ private fun buildActionDetails(
 
             val priority =
                 when {
-                    listOf("urgent", "critical", "asap", "immediately", "deadline")
+                    listOf("urgent", "critical", "asap", "immediately", "deadline", "must", "required")
                         .any { sentence.contains(it, ignoreCase = true) } -> "High"
 
                     listOf("should", "recommend", "review", "follow up")
