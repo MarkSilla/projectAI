@@ -3996,6 +3996,14 @@ fun DocumentReviewPanel(
                     overflow = TextOverflow.Ellipsis
                 )
 
+                Text(
+                    text = "Focus: ${summary.reviewMode.label}",
+                    color = fg.copy(alpha = 0.7f),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
                 if (summary.executiveSummary.isNotBlank()) {
                     Text(
                         text = summary.executiveSummary,

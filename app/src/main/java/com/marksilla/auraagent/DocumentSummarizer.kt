@@ -19,7 +19,8 @@ data class DocumentSummary(
     val overallAssessment: String = "Needs review",
     val confidenceScore: Int = 75,
     val evidence: List<ReviewEvidence> = emptyList(),
-    val actionDetails: List<ReviewAction> = emptyList()
+    val actionDetails: List<ReviewAction> = emptyList(),
+    val reviewMode: ReviewMode = ReviewMode.GENERAL
 )
 
 data class ReviewEvidence(
@@ -286,7 +287,9 @@ fun summarizeDocumentText(
 
         evidence = evidence,
 
-        actionDetails = actionDetails
+        actionDetails = actionDetails,
+
+        reviewMode = options.mode
     )
 }
 
@@ -456,7 +459,7 @@ private fun focusSentences(
                 }
         }
 
-    return if (focused.size >= 3) {
+    return if (focused.isNotEmpty()) {
         focused
     } else {
         sentences

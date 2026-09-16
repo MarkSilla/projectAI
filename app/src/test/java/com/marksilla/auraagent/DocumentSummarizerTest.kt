@@ -46,6 +46,26 @@ class DocumentSummarizerTest {
     }
 
     @Test
+    fun appliesSelectedReviewFocus() {
+        val text =
+            "The project has a serious budget risk. " +
+                "The assigned team must submit a correction by Friday. " +
+                "The research method explains the study results and evidence."
+
+        val summary =
+            summarizeDocumentText(
+                title = "Focused review.txt",
+                rawText = text,
+                options = SummaryOptions(mode = ReviewMode.ACTIONS)
+            )
+
+        assertNotNull(summary)
+        requireNotNull(summary)
+        assertEquals(ReviewMode.ACTIONS, summary.reviewMode)
+        assertTrue(summary.actionItems.any { it.contains("submit", ignoreCase = true) })
+    }
+
+    @Test
     fun rejectsTextWithoutEnoughReadableContent() {
         val summary =
             summarizeDocumentText(
