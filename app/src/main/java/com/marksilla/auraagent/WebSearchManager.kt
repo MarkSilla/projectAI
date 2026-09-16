@@ -9,7 +9,8 @@ import java.nio.charset.StandardCharsets
 internal data class WebSearchResult(
     val title: String,
     val url: String,
-    val snippet: String
+    val snippet: String,
+    val imageUrl: String? = null
 )
 
 internal data class WebSearchResponse(
@@ -46,19 +47,57 @@ internal class WebSearchManager(
 internal fun extractWebSearchQuery(input: String): String? {
     val match =
         Regex(
-            "^\\s*@web\\s*\\{([\\s\\S]*)}\\s*$",
+            "^@web\\b([\\s\\S]*)$",
             RegexOption.IGNORE_CASE
-        ).matchEntire(input)
+        ).matchEntire(input.trim())
 
-    return match
+    val rawQuery =
+        match
         ?.groupValues
         ?.getOrNull(1)
         ?.trim()
-        ?.takeIf { it.isNotBlank() }
+
+    if (rawQuery.isNullOrBlank()) {
+        return null
+    }
+
+    if (rawQuery.startsWith("{")) {
+        if (!rawQuery.endsWith("}")) {
+            return null
+        }
+
+        return rawQuery
+            .removePrefix("{")
+            .removeSuffix("}")
+            .trim()
+            .takeIf { it.isNotBlank() }
+    }
+
+    return rawQuery
+}
+
+internal fun isWebSearchCommand(input: String): Boolean {
+    return input.trim().matches(
+        Regex("@web(?:\\s|\\{|$).*", RegexOption.IGNORE_CASE)
+    )
 }
 
 internal fun shouldSearchWeb(input: String): Boolean {
     return extractWebSearchQuery(input) != null
+}
+
+internal fun isVideoSearchQuery(query: String): Boolean {
+    val normalized = query.lowercase()
+    return listOf(
+        "video",
+        "videos",
+        "youtube",
+        "watch",
+        "tutorial",
+        "documentary",
+        "livestream",
+        "live stream"
+    ).any { normalized.contains(it) }
 }
 
 internal fun parseSearchResults(
@@ -81,6 +120,7 @@ internal fun parseSearchResults(
             val url = decodeHtml(match.groupValues[1]).trim()
             val title = decodeHtml(stripHtml(match.groupValues[2])).trim()
             val snippet = decodeHtml(stripHtml(match.groupValues[3])).trim()
+            val imageUrl = extractImageUrl(match.value)
 
             if (title.isBlank() || url.isBlank()) {
                 null
@@ -88,7 +128,8 @@ internal fun parseSearchResults(
                 WebSearchResult(
                     title = title,
                     url = url,
-                    snippet = snippet
+                    snippet = snippet,
+                    imageUrl = imageUrl
                 )
             }
         }
@@ -114,9 +155,19 @@ internal fun formatWebSearchReply(response: WebSearchResponse): String {
             if (result.snippet.isNotBlank()) {
                 appendLine(result.snippet)
             }
-            appendLine("Source: ${result.url}")
         }
     }.trim()
+}
+
+private fun extractImageUrl(html: String): String? {
+    return Regex(
+        "<img[^>]+(?:data-src|src)=\"(https?://[^\"]+)\"",
+        RegexOption.IGNORE_CASE
+    ).find(html)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
 }
 
 private fun fetchSearchPage(query: String): String {

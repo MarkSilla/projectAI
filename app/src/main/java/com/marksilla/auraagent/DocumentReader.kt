@@ -2,6 +2,11 @@ package com.marksilla.auraagent
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import com.google.android.gms.tasks.Tasks
@@ -28,14 +33,29 @@ data class DocumentPage(
 data class DocumentText(
     val text: String,
     val sourceType: String,
-    val pages: List<DocumentPage> = emptyList()
+    val pages: List<DocumentPage> = emptyList(),
+    val ocrLowConfidencePages: List<Int> = emptyList(),
+    val ocrPageCount: Int = 0,
+    val ocrTruncated: Boolean = false
 )
+
+data class OcrScanResult(
+    val text: String,
+    val pages: List<DocumentPage>,
+    val lowConfidencePages: List<Int>,
+    val totalPages: Int,
+    val truncated: Boolean = false
+)
+
+private const val MAX_OCR_PAGES = 50
 
 fun readDocumentTextFromUri(
     context: Context,
     uri: Uri,
     displayName: String,
-    maxChars: Int = 250_000
+    maxChars: Int = 250_000,
+    onProgress: (scannedPages: Int, totalPages: Int) -> Unit = { _, _ -> },
+    isCancelled: () -> Boolean = { false }
 ): DocumentText {
     val mimeType =
         context.contentResolver
@@ -52,7 +72,9 @@ fun readDocumentTextFromUri(
             readPdfDocument(
                 context = context,
                 uri = uri,
-                maxChars = maxChars
+                maxChars = maxChars,
+                onProgress = onProgress,
+                isCancelled = isCancelled
             )
 
         mimeType ==
@@ -62,6 +84,18 @@ fun readDocumentTextFromUri(
                 context = context,
                 uri = uri,
                 maxChars = maxChars
+            )
+
+        mimeType.startsWith("image/") ||
+            lowerName.endsWith(".jpg") ||
+            lowerName.endsWith(".jpeg") ||
+            lowerName.endsWith(".png") ->
+            readImageWithOcr(
+                context = context,
+                uri = uri,
+                maxChars = maxChars,
+                onProgress = onProgress,
+                isCancelled = isCancelled
             )
 
         else ->
@@ -112,7 +146,10 @@ fun extractDocxText(
         .take(maxChars)
 }
 
-fun formatReviewerMarkdown(summary: DocumentSummary): String =
+fun formatReviewerMarkdown(
+    summary: DocumentSummary,
+    webResults: List<WebSearchResult> = emptyList()
+): String =
     buildString {
         appendLine("# ${summary.title}")
         appendLine()
@@ -181,6 +218,18 @@ fun formatReviewerMarkdown(summary: DocumentSummary): String =
             appendLine("## Keywords")
             appendLine(summary.keywords.joinToString(", "))
         }
+
+        if (webResults.isNotEmpty()) {
+            appendLine()
+            appendLine("## Related Web Information")
+            webResults.forEach { result ->
+                appendLine("- ${result.title}")
+                if (result.snippet.isNotBlank()) {
+                    appendLine("  - ${result.snippet}")
+                }
+                appendLine("  - Source: ${result.url}")
+            }
+        }
     }
 
 fun suggestedReviewerFileName(title: String): String {
@@ -208,7 +257,9 @@ fun suggestedReviewerFileName(title: String): String {
 private fun readPdfDocument(
     context: Context,
     uri: Uri,
-    maxChars: Int
+    maxChars: Int,
+    onProgress: (scannedPages: Int, totalPages: Int) -> Unit,
+    isCancelled: () -> Boolean
 ): DocumentText {
     PDFBoxResourceLoader.init(
         context.applicationContext
@@ -237,32 +288,29 @@ private fun readPdfDocument(
             )
         }
 
-    val finalText =
+    val ocrResult =
         if (shouldAttemptOcr(text)) {
-            val ocrText =
-                runCatching {
-                    readPdfWithOcr(
-                        context = context,
-                        uri = uri,
-                        maxChars = maxChars
-                    )
-                }.getOrElse {
-                    ""
-                }
-
-            if (ocrText.isNotBlank()) {
-                ocrText
-            } else {
-                text
-            }
+            runCatching {
+                readPdfWithOcr(
+                    context = context,
+                    uri = uri,
+                    maxChars = maxChars,
+                    onProgress = onProgress,
+                    isCancelled = isCancelled
+                )
+            }.getOrNull()
         } else {
-            text
+            null
         }
+    val finalText = ocrResult?.text?.takeIf { it.isNotBlank() } ?: text
 
     return DocumentText(
         text = finalText,
         sourceType = "PDF",
-        pages = pages
+        pages = ocrResult?.pages?.ifEmpty { pages } ?: pages,
+        ocrLowConfidencePages = ocrResult?.lowConfidencePages.orEmpty(),
+        ocrPageCount = ocrResult?.totalPages ?: 0,
+        ocrTruncated = ocrResult?.truncated == true
     )
 }
 
@@ -308,12 +356,19 @@ private fun readPdfPages(
 private fun readPdfWithOcr(
     context: Context,
     uri: Uri,
-    maxChars: Int
-): String {
+    maxChars: Int,
+    onProgress: (scannedPages: Int, totalPages: Int) -> Unit,
+    isCancelled: () -> Boolean
+): OcrScanResult {
     val descriptor =
         context.contentResolver
             .openFileDescriptor(uri, "r")
-            ?: return ""
+            ?: return OcrScanResult(
+                text = "",
+                pages = emptyList(),
+                lowConfidencePages = emptyList(),
+                totalPages = 0
+            )
 
     val recognizer =
         TextRecognition.getClient(
@@ -322,8 +377,15 @@ private fun readPdfWithOcr(
 
     return descriptor.use { parcelFileDescriptor ->
         PdfRenderer(parcelFileDescriptor).use { renderer ->
-            buildString {
-                for (pageIndex in 0 until renderer.pageCount) {
+            val pages = mutableListOf<DocumentPage>()
+            val lowConfidencePages = mutableListOf<Int>()
+            val pagesToScan = minOf(renderer.pageCount, MAX_OCR_PAGES)
+            val text = buildString {
+                for (pageIndex in 0 until pagesToScan) {
+                    if (isCancelled()) {
+                        break
+                    }
+
                     val page =
                         renderer.openPage(pageIndex)
 
@@ -333,6 +395,7 @@ private fun readPdfWithOcr(
                             page.height,
                             Bitmap.Config.ARGB_8888
                         )
+                    var processedBitmap: Bitmap? = null
 
                     try {
                         page.render(
@@ -342,9 +405,11 @@ private fun readPdfWithOcr(
                             PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY
                         )
 
+                        val ocrBitmap = preprocessOcrBitmap(bitmap)
+                        processedBitmap = ocrBitmap
                         val image =
                             InputImage.fromBitmap(
-                                bitmap,
+                                ocrBitmap,
                                 0
                             )
 
@@ -357,22 +422,44 @@ private fun readPdfWithOcr(
                             result.text.trim()
 
                         if (detectedText.isNotBlank()) {
+                            val pageNumber = pageIndex + 1
+                            val remaining = maxChars - length
+                            val limitedText = detectedText.take(remaining)
+                            pages +=
+                                DocumentPage(
+                                    pageNumber = pageNumber,
+                                    text = limitedText
+                                )
+                            if (isLikelyLowConfidenceOcrText(detectedText)) {
+                                lowConfidencePages += pageNumber
+                            }
                             if (isNotEmpty()) {
                                 append("\n\n")
                             }
 
-                            append(detectedText)
+                            append(limitedText)
                         }
                     } finally {
                         page.close()
+                        processedBitmap?.recycle()
                         bitmap.recycle()
                     }
 
                     if (length >= maxChars) {
                         break
                     }
+
+                    onProgress(pageIndex + 1, pagesToScan)
                 }
             }.take(maxChars)
+
+            OcrScanResult(
+                text = text,
+                pages = pages,
+                lowConfidencePages = lowConfidencePages,
+                totalPages = pagesToScan,
+                truncated = renderer.pageCount > MAX_OCR_PAGES
+            )
         }
     }
 }
@@ -397,6 +484,113 @@ private fun readDocxDocument(
         text = text,
         sourceType = "DOCX"
     )
+}
+
+private fun readImageWithOcr(
+    context: Context,
+    uri: Uri,
+    maxChars: Int,
+    onProgress: (scannedPages: Int, totalPages: Int) -> Unit,
+    isCancelled: () -> Boolean
+): DocumentText {
+    if (isCancelled()) {
+        return DocumentText(
+            text = "",
+            sourceType = "Image"
+        )
+    }
+
+    val recognizer =
+        TextRecognition.getClient(
+            TextRecognizerOptions.DEFAULT_OPTIONS
+        )
+    val sourceBitmap =
+        context.contentResolver
+            .openInputStream(uri)
+            ?.use(BitmapFactory::decodeStream)
+            ?: return DocumentText(
+                text = "",
+                sourceType = "Image"
+            )
+    val processedBitmap = preprocessOcrBitmap(sourceBitmap)
+    val detectedText =
+        Tasks.await(
+            recognizer.process(
+                InputImage.fromBitmap(processedBitmap, 0)
+            )
+        ).text
+            .trim()
+            .take(maxChars)
+
+    processedBitmap.recycle()
+    sourceBitmap.recycle()
+
+    onProgress(1, 1)
+
+    return DocumentText(
+        text = detectedText,
+        sourceType = "Image",
+        pages =
+            if (detectedText.isBlank()) {
+                emptyList()
+            } else {
+                listOf(
+                    DocumentPage(
+                        pageNumber = 1,
+                        text = detectedText
+                    )
+                )
+            },
+        ocrLowConfidencePages =
+            if (isLikelyLowConfidenceOcrText(detectedText)) {
+                listOf(1)
+            } else {
+                emptyList()
+            },
+        ocrPageCount = 1
+    )
+}
+
+private fun preprocessOcrBitmap(source: Bitmap): Bitmap {
+    val output =
+        Bitmap.createBitmap(
+            source.width,
+            source.height,
+            Bitmap.Config.ARGB_8888
+        )
+    val contrast = 1.25f
+    val offset = -32f
+    val matrix =
+        ColorMatrix(
+            floatArrayOf(
+                0.299f * contrast, 0.587f * contrast, 0.114f * contrast, 0f, offset,
+                0.299f * contrast, 0.587f * contrast, 0.114f * contrast, 0f, offset,
+                0.299f * contrast, 0.587f * contrast, 0.114f * contrast, 0f, offset,
+                0f, 0f, 0f, 1f, 0f
+            )
+        )
+    Canvas(output).drawBitmap(
+        source,
+        0f,
+        0f,
+        Paint().apply {
+            colorFilter = ColorMatrixColorFilter(matrix)
+        }
+    )
+    return output
+}
+
+private fun isLikelyLowConfidenceOcrText(text: String): Boolean {
+    val letters = text.count { it.isLetter() }
+    val digits = text.count { it.isDigit() }
+    val readable = letters + digits
+    val words = text.split(Regex("\\s+")).count { it.length >= 2 }
+    val noisyCharacters = text.count { !it.isLetterOrDigit() && !it.isWhitespace() }
+
+    return text.length < 25 ||
+        words < 4 ||
+        readable < 12 ||
+        (noisyCharacters > readable && readable > 0)
 }
 
 private fun readPlainDocument(

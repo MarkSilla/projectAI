@@ -46,6 +46,35 @@ class DocumentSummarizerTest {
     }
 
     @Test
+    fun removesRepeatedHeadersAndBoilerplateBeforeScoring() {
+        val text =
+            """
+            PROJECT HEADER
+            The report identifies a critical budget risk that requires immediate review.
+            PROJECT HEADER
+            The assigned team must submit the corrective action before the deadline.
+            PROJECT HEADER
+            The recommendation is to monitor the project timeline and approve the revised plan.
+            All rights reserved. Do not distribute.
+            """.trimIndent()
+
+        val summary =
+            summarizeDocumentText(
+                title = "Project Report.txt",
+                rawText = text
+            )
+
+        assertNotNull(summary)
+        requireNotNull(summary)
+        val scoredText =
+            (summary.keyPoints + summary.reviewerNotes + summary.actionItems)
+                .joinToString(" ")
+        assertTrue(!scoredText.contains("PROJECT HEADER", ignoreCase = true))
+        assertTrue(!scoredText.contains("all rights reserved", ignoreCase = true))
+        assertTrue(scoredText.contains("budget", ignoreCase = true))
+    }
+
+    @Test
     fun appliesSelectedReviewFocus() {
         val text =
             "The project has a serious budget risk. " +
@@ -139,13 +168,25 @@ class DocumentSummarizerTest {
                 )
             )
 
-        val markdown = formatReviewerMarkdown(summary)
+        val markdown =
+            formatReviewerMarkdown(
+                summary = summary,
+                webResults = listOf(
+                    WebSearchResult(
+                        title = "Study reference",
+                        url = "https://example.com/study",
+                        snippet = "Related context."
+                    )
+                )
+            )
 
         assertTrue(markdown.contains("# Study Notes.docx"))
         assertTrue(markdown.contains("## Key Points"))
         assertTrue(markdown.contains("## Executive Summary"))
         assertTrue(markdown.contains("## Overall Assessment"))
         assertTrue(markdown.contains("## Action Details"))
+        assertTrue(markdown.contains("## Related Web Information"))
+        assertTrue(markdown.contains("https://example.com/study"))
         assertTrue(markdown.contains("- Focus on the main idea."))
         assertEquals(
             "Study Notes Reviewer.md",

@@ -2,10 +2,30 @@ package com.marksilla.auraagent
 
 import android.Manifest
 import android.content.BroadcastReceiver
+            if (reviewing && documentProgress != null) {
+                Text(
+                    text = documentProgress,
+                    color = fg.copy(alpha = 0.78f),
+                    fontSize = 13.sp
+                )
+                LinearProgressIndicator(
+                    progress = { documentProgressPercent.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedButton(
+                    onClick = onCancelDocument,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Cancel scan")
+                }
+            }
+
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -20,6 +40,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -55,11 +76,13 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -73,12 +96,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -87,8 +113,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.URL
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -169,6 +200,21 @@ private fun isAppOpenRequest(input: String): Boolean {
     ).any { normalized.contains(it) }
 }
 
+internal fun buildReviewerWebQuery(summary: DocumentSummary): String {
+    return listOf(
+        summary.title.substringBeforeLast('.'),
+        summary.keywords.take(6).joinToString(" ")
+    )
+        .filter { it.isNotBlank() }
+        .joinToString(" ")
+        .trim()
+        .take(180)
+}
+
+internal fun isSafeWebUrl(url: String): Boolean {
+    return Uri.parse(url).scheme?.lowercase(Locale.US) in setOf("http", "https")
+}
+
 private enum class ChatResultTone {
     SUCCESS,
     WARNING,
@@ -178,7 +224,10 @@ private enum class ChatResultTone {
 private data class ChatResult(
     val title: String,
     val detail: String,
-    val tone: ChatResultTone = ChatResultTone.INFO
+    val tone: ChatResultTone = ChatResultTone.INFO,
+    val webResults: List<WebSearchResult> = emptyList(),
+    val appChoices: List<InstalledApp> = emptyList(),
+    val videoSearch: Boolean = false
 )
 
 internal fun generateAssistantReply(
@@ -781,6 +830,32 @@ fun AuraApp(
         remember {
             WebSearchManager()
         }
+    val reviewerWebScope = rememberCoroutineScope()
+    var reviewerWebResults by remember {
+        mutableStateOf<List<WebSearchResult>>(emptyList())
+    }
+    var reviewerWebLoading by remember {
+        mutableStateOf(false)
+    }
+    var reviewerWebError by remember {
+        mutableStateOf<String?>(null)
+    }
+    var reviewerWebRequestId by remember {
+        mutableStateOf(0L)
+    }
+    val documentScope = rememberCoroutineScope()
+    var documentReadJob by remember {
+        mutableStateOf<Job?>(null)
+    }
+    var documentProgress by remember {
+        mutableStateOf<String?>(null)
+    }
+    var documentProgressPercent by remember {
+        mutableStateOf(0f)
+    }
+    var documentOcrWarning by remember {
+        mutableStateOf<String?>(null)
+    }
     var onlineApiKeyConfigured by remember {
         mutableStateOf(onlineAiClient.isConfigured)
     }
@@ -1178,60 +1253,98 @@ fun AuraApp(
             currentScreen = AuraScreen.REVIEWER
             reviewingDocument = true
             documentError = null
+            reviewerWebResults = emptyList()
+            reviewerWebError = null
+            reviewerWebLoading = false
+            reviewerWebRequestId += 1L
 
-            runCatching {
-                val name =
-                    getDocumentDisplayName(
-                        context = context,
-                        uri = uri
-                    )
+            documentReadJob?.cancel()
+            documentProgress = "Preparing document..."
+            documentProgressPercent = 0f
+            documentOcrWarning = null
+            documentReadJob =
+                documentScope.launch(Dispatchers.IO) {
+                    try {
+                        val name =
+                            getDocumentDisplayName(
+                                context = context,
+                                uri = uri
+                            )
+                        val documentText =
+                            readDocumentTextFromUri(
+                                context = context,
+                                uri = uri,
+                                displayName = name,
+                                onProgress = { scannedPages, totalPages ->
+                                    documentProgress =
+                                        "Scanning page $scannedPages of $totalPages"
+                                    documentProgressPercent =
+                                        if (totalPages > 0) {
+                                            scannedPages.toFloat() / totalPages
+                                        } else {
+                                            0f
+                                        }
+                                },
+                                isCancelled = { !isActive }
+                            )
+                        val summary =
+                            summarizeDocumentText(
+                                title = name,
+                                rawText = documentText.text,
+                                pages = documentText.pages
+                            )
 
-                val documentText =
-                    readDocumentTextFromUri(
-                        context = context,
-                        uri = uri,
-                        displayName = name
-                    )
+                        withContext(Dispatchers.Main) {
+                            documentContent = documentText
+                            documentName = name
+                            documentSummary = summary
+                            reviewMode = ReviewMode.GENERAL
+                            documentOcrWarning =
+                                buildList {
+                                    if (documentText.ocrTruncated) {
+                                        add("Only the first 50 scanned pages were processed.")
+                                    }
+                                    if (documentText.ocrLowConfidencePages.isNotEmpty()) {
+                                        add(
+                                            "Some scanned pages may be unclear: " +
+                                                documentText.ocrLowConfidencePages.joinToString(", ")
+                                        )
+                                    }
+                                }
+                                    .takeIf { it.isNotEmpty() }
+                                    ?.joinToString(" ")
+                            documentProgress = null
 
-                documentContent = documentText
-                reviewMode = ReviewMode.GENERAL
-
-                Triple(
-                    name,
-                    documentText.sourceType,
-                    summarizeDocumentText(
-                        title = name,
-                        rawText = documentText.text,
-                        pages = documentText.pages
-                    )
-                )
-            }
-                .onSuccess { result ->
-                    val (name, sourceType, summary) = result
-                    documentName = name
-                    documentSummary = summary
-
-                    if (summary == null) {
-                        documentError =
-                            "Not enough readable text found in this $sourceType."
-                        status = "Document could not be summarized"
-                    } else {
-                        documentError = null
-                        status = "$sourceType summarized"
-                        recent =
-                            listOf(
-                                "Reviewed $name"
-                            ) + recent.take(4)
+                            if (summary == null) {
+                                documentError =
+                                    "Not enough readable text found in this ${documentText.sourceType}."
+                                status = "Document could not be summarized"
+                            } else {
+                                documentError = null
+                                status = "${documentText.sourceType} summarized"
+                                recent =
+                                    listOf("Reviewed $name") + recent.take(4)
+                            }
+                        }
+                    } catch (_: CancellationException) {
+                        withContext(Dispatchers.Main) {
+                            documentProgress = null
+                            status = "Document scan cancelled"
+                        }
+                    } catch (_: Exception) {
+                        withContext(Dispatchers.Main) {
+                            documentSummary = null
+                            documentProgress = null
+                            documentError = "Couldn't read this document."
+                            status = "Document read failed"
+                        }
+                    } finally {
+                        withContext(Dispatchers.Main) {
+                            reviewingDocument = false
+                            documentReadJob = null
+                        }
                     }
                 }
-                .onFailure {
-                    documentSummary = null
-                    documentError =
-                        "Couldn't read this document."
-                    status = "Document read failed"
-                }
-
-            reviewingDocument = false
         }
 
     val saveReviewerLauncher =
@@ -1251,7 +1364,10 @@ fun AuraApp(
                         ?.bufferedWriter()
                         ?.use { writer ->
                             writer.write(
-                                formatReviewerMarkdown(summary)
+                                formatReviewerMarkdown(
+                                    summary = summary,
+                                    webResults = reviewerWebResults
+                                )
                             )
                         }
                         ?: error("No output stream")
@@ -1300,6 +1416,7 @@ fun AuraApp(
                 "application/pdf",
                 "application/msword",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "image/*",
                 "application/octet-stream"
             )
         )
@@ -1548,7 +1665,8 @@ fun AuraApp(
                     ChatResult(
                         title = "Choose an app",
                         detail = appCandidates.joinToString(", ") { it.name },
-                        tone = ChatResultTone.INFO
+                        tone = ChatResultTone.INFO,
+                        appChoices = appCandidates
                     )
             )
             return
@@ -1701,9 +1819,25 @@ fun AuraApp(
         val request = pendingChatRequest ?: return@LaunchedEffect
         try {
             delay(420)
-            if (shouldSearchWeb(request)) {
+            if (isWebSearchCommand(request)) {
+                val searchQuery = extractWebSearchQuery(request)
+                if (searchQuery == null) {
+                    status = "Web search query is missing"
+                    completeChatExchange(
+                        userPrompt = request,
+                        assistantReply =
+                            "Please use this format: @web what you want to search",
+                        result =
+                            ChatResult(
+                                title = "Search query needed",
+                                detail = "Example: @web what is RAM?",
+                                tone = ChatResultTone.WARNING
+                            )
+                    )
+                    return@LaunchedEffect
+                }
+
                 status = "Searching the web..."
-                val searchQuery = extractWebSearchQuery(request) ?: request
                 val response =
                     withContext(Dispatchers.IO) {
                         webSearchManager.searchDetailed(searchQuery)
@@ -1722,7 +1856,11 @@ fun AuraApp(
                         ChatResult(
                             title =
                                 if (response.error == null) {
-                                    "Web results"
+                                    if (isVideoSearchQuery(searchQuery)) {
+                                        "Video results"
+                                    } else {
+                                        "Web results"
+                                    }
                                 } else {
                                     "Web search unavailable"
                                 },
@@ -1737,7 +1875,9 @@ fun AuraApp(
                                     ChatResultTone.INFO
                                 } else {
                                     ChatResultTone.WARNING
-                                }
+                                },
+                                webResults = response.results,
+                                videoSearch = isVideoSearchQuery(searchQuery)
                         )
                 )
                 return@LaunchedEffect
@@ -2187,6 +2327,22 @@ fun AuraApp(
                                             }
                                     }
                                 },
+                                onOpenWebLink = { url ->
+                                    if (isSafeWebUrl(url)) {
+                                        runCatching {
+                                            context.startActivity(
+                                                Intent(
+                                                    Intent.ACTION_VIEW,
+                                                    Uri.parse(url)
+                                                )
+                                            )
+                                        }.onFailure {
+                                            status = "Unable to open source link"
+                                        }
+                                    } else {
+                                        status = "Blocked unsafe source link"
+                                    }
+                                },
                                 onEnableAura = ::enableAura,
                                 onPauseAura = ::pauseAuraService,
                                 onResumeAura = ::resumeAuraService,
@@ -2265,9 +2421,21 @@ fun AuraApp(
                                 documentError = documentError,
                                 reviewingDocument = reviewingDocument,
                                 reviewMode = reviewMode,
+                                reviewerWebResults = reviewerWebResults,
+                                reviewerWebLoading = reviewerWebLoading,
+                                reviewerWebError = reviewerWebError,
+                                documentProgress = documentProgress,
+                                documentProgressPercent = documentProgressPercent,
+                                documentOcrWarning = documentOcrWarning,
                                 onPickDocument = ::openDocumentReviewer,
+                                onCancelDocument = {
+                                    documentReadJob?.cancel()
+                                },
                                 onModeChange = { mode ->
                                     reviewMode = mode
+                                    reviewerWebResults = emptyList()
+                                    reviewerWebError = null
+                                    reviewerWebRequestId += 1L
                                     val content = documentContent
 
                                     if (content != null && documentName != null) {
@@ -2280,6 +2448,55 @@ fun AuraApp(
                                             )
                                     }
                                 },
+                                onSearchWeb = {
+                                    val summary = documentSummary
+                                    if (summary != null && !reviewerWebLoading) {
+                                        val requestId = reviewerWebRequestId + 1L
+                                        reviewerWebRequestId = requestId
+                                        reviewerWebLoading = true
+                                        reviewerWebError = null
+                                        reviewerWebScope.launch {
+                                            try {
+                                                val response =
+                                                    withContext(Dispatchers.IO) {
+                                                        webSearchManager.searchDetailed(
+                                                            buildReviewerWebQuery(summary)
+                                                        )
+                                                    }
+                                                if (requestId == reviewerWebRequestId) {
+                                                    reviewerWebResults = response.results
+                                                    reviewerWebError = response.error
+                                                }
+                                            } catch (_: Exception) {
+                                                if (requestId == reviewerWebRequestId) {
+                                                    reviewerWebResults = emptyList()
+                                                    reviewerWebError =
+                                                        "The web search request failed"
+                                                }
+                                            } finally {
+                                                if (requestId == reviewerWebRequestId) {
+                                                    reviewerWebLoading = false
+                                                }
+                                                }
+                                        }
+                                    }
+                                },
+                                onOpenWebLink = { url ->
+                                    if (isSafeWebUrl(url)) {
+                                        runCatching {
+                                            context.startActivity(
+                                                Intent(
+                                                    Intent.ACTION_VIEW,
+                                                    Uri.parse(url)
+                                                )
+                                            )
+                                        }.onFailure {
+                                            status = "Unable to open source link"
+                                        }
+                                    } else {
+                                        status = "Blocked unsafe source link"
+                                    }
+                                },
                                 onSave = ::saveReviewer,
                                 onClear = {
                                     documentName = null
@@ -2287,6 +2504,14 @@ fun AuraApp(
                                     documentContent = null
                                     documentError = null
                                     reviewMode = ReviewMode.GENERAL
+                                    reviewerWebResults = emptyList()
+                                    reviewerWebError = null
+                                    reviewerWebLoading = false
+                                    reviewerWebRequestId += 1L
+                                    documentReadJob?.cancel()
+                                    documentProgress = null
+                                    documentProgressPercent = 0f
+                                    documentOcrWarning = null
                                     status = "Ready"
                                 }
                             )
@@ -2540,6 +2765,7 @@ private fun HomeScreen(
     onSendChat: () -> Unit,
     onAiModeChange: (AiMode) -> Unit,
     onRegenerateLast: () -> Unit,
+    onOpenWebLink: (String) -> Unit,
     onEnableAura: () -> Unit,
     onPauseAura: () -> Unit,
     onResumeAura: () -> Unit,
@@ -2552,6 +2778,7 @@ private fun HomeScreen(
     onRunRoutinePreset: (RoutinePreset) -> Unit
 ) {
     val listState = rememberLazyListState()
+    val webSearchActive = isWebSearchCommand(chatInput)
 
     LaunchedEffect(
         chatMessages.size,
@@ -2661,6 +2888,22 @@ private fun HomeScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        Text(
+                            text = "For web results, use @web your question",
+                            color =
+                                if (webSearchActive) {
+                                    Color(0xFF2196F3)
+                                } else {
+                                    fg.copy(alpha = 0.62f)
+                                },
+                            fontSize = 12.sp,
+                            fontWeight =
+                                if (webSearchActive) {
+                                    FontWeight.Bold
+                                } else {
+                                    FontWeight.Normal
+                                }
+                        )
                     }
 
                     Row(
@@ -2738,46 +2981,6 @@ private fun HomeScreen(
                                     enabled = !auraThinking
                                 ) {
                                     Text("No")
-                                }
-                            }
-                        }
-                    }
-
-                    if (pendingAppChoices != null) {
-                        Column(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .background(
-                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f),
-                                        shape = RoundedCornerShape(16.dp)
-                                    )
-                                    .padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "Choose an app",
-                                color = fg,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "I found several possible matches.",
-                                color = fg.copy(alpha = 0.72f),
-                                fontSize = 13.sp
-                            )
-                            pendingAppChoices.apps.forEach { app ->
-                                OutlinedButton(
-                                    onClick = { onSelectApp(app) },
-                                    enabled = !auraThinking,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text(
-                                        text = app.name,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
                                 }
                             }
                         }
@@ -3142,6 +3345,33 @@ private fun HomeScreen(
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis
                                         )
+                                        result.webResults.forEach { webResult ->
+                                            WebSearchResultItem(
+                                                result = webResult,
+                                                onOpenLink = onOpenWebLink,
+                                                actionLabel =
+                                                    if (result.videoSearch) {
+                                                        "Watch video"
+                                                    } else {
+                                                        "Read more"
+                                                    }
+                                            )
+                                        }
+                                        result.appChoices.forEach { app ->
+                                            OutlinedButton(
+                                                onClick = { onSelectApp(app) },
+                                                enabled = !auraThinking,
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(12.dp)
+                                            ) {
+                                                Text(
+                                                    text = app.name,
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
                                     }
                                 }
 
@@ -3219,12 +3449,23 @@ private fun HomeScreen(
                                     if (auraThinking) {
                                         "AURA is responding..."
                                     } else {
-                                        "Ask or command AURA"
+                                        "Ask AURA or use @web your question"
                                     }
                                 )
                             },
                             singleLine = true,
-                            shape = RoundedCornerShape(18.dp)
+                            shape = RoundedCornerShape(18.dp),
+                            colors =
+                                OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color(0xFF2196F3),
+                                    unfocusedBorderColor =
+                                        if (webSearchActive) {
+                                            Color(0xFF2196F3)
+                                        } else {
+                                            MaterialTheme.colorScheme.outline
+                                        },
+                                    focusedLabelColor = Color(0xFF2196F3)
+                                )
                         )
 
                         Button(
@@ -3279,6 +3520,90 @@ private fun HomeScreen(
 }
 
 @Composable
+private fun WebSearchResultItem(
+    result: WebSearchResult,
+    onOpenLink: (String) -> Unit,
+    actionLabel: String = "Read more"
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+                .background(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        result.imageUrl?.let { imageUrl ->
+            WebSearchResultImage(imageUrl)
+        }
+        Text(
+            text = result.title,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (result.snippet.isNotBlank()) {
+            Text(
+                text = result.snippet,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+                fontSize = 12.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        TextButton(
+            onClick = { onOpenLink(result.url) },
+            contentPadding = PaddingValues(0.dp)
+        ) {
+            Text(
+                text = actionLabel,
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 12.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun WebSearchResultImage(imageUrl: String) {
+    var bitmap by remember(imageUrl) {
+        mutableStateOf<Bitmap?>(null)
+    }
+
+    LaunchedEffect(imageUrl) {
+        bitmap =
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val connection =
+                        URL(imageUrl).openConnection().apply {
+                            connectTimeout = 5_000
+                            readTimeout = 8_000
+                        }
+                    connection.getInputStream().use(BitmapFactory::decodeStream)
+                }.getOrNull()
+            }
+    }
+
+    bitmap?.let { loadedBitmap ->
+        Image(
+            bitmap = loadedBitmap.asImageBitmap(),
+            contentDescription = "Related image",
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(150.dp),
+            contentScale = ContentScale.Crop
+        )
+    }
+}
+
+@Composable
 private fun ReviewerScreen(
     fg: Color,
     card: Color,
@@ -3290,8 +3615,17 @@ private fun ReviewerScreen(
     documentError: String?,
     reviewingDocument: Boolean,
     reviewMode: ReviewMode,
+    reviewerWebResults: List<WebSearchResult>,
+    reviewerWebLoading: Boolean,
+    reviewerWebError: String?,
+    documentProgress: String?,
+    documentProgressPercent: Float,
+    documentOcrWarning: String?,
     onPickDocument: () -> Unit,
+    onCancelDocument: () -> Unit,
     onModeChange: (ReviewMode) -> Unit,
+    onSearchWeb: () -> Unit,
+    onOpenWebLink: (String) -> Unit,
     onSave: (DocumentSummary) -> Unit,
     onClear: () -> Unit
 ) {
@@ -3327,12 +3661,21 @@ private fun ReviewerScreen(
                 error = documentError,
                 reviewing = reviewingDocument,
                 reviewMode = reviewMode,
+                reviewerWebResults = reviewerWebResults,
+                reviewerWebLoading = reviewerWebLoading,
+                reviewerWebError = reviewerWebError,
+                documentProgress = documentProgress,
+                documentProgressPercent = documentProgressPercent,
+                documentOcrWarning = documentOcrWarning,
                 modifier =
                     Modifier
                         .widthIn(max = contentMaxWidth)
                         .fillMaxWidth(),
                 onPickDocument = onPickDocument,
+                onCancelDocument = onCancelDocument,
                 onModeChange = onModeChange,
+                onSearchWeb = onSearchWeb,
+                onOpenWebLink = onOpenWebLink,
                 onSave = onSave,
                 onClear = onClear
             )
@@ -3961,9 +4304,18 @@ fun DocumentReviewPanel(
     error: String?,
     reviewing: Boolean,
     reviewMode: ReviewMode,
+    reviewerWebResults: List<WebSearchResult>,
+    reviewerWebLoading: Boolean,
+    reviewerWebError: String?,
+    documentProgress: String?,
+    documentProgressPercent: Float,
+    documentOcrWarning: String?,
     modifier: Modifier = Modifier,
     onPickDocument: () -> Unit,
+    onCancelDocument: () -> Unit,
     onModeChange: (ReviewMode) -> Unit,
+    onSearchWeb: () -> Unit,
+    onOpenWebLink: (String) -> Unit,
     onSave: (DocumentSummary) -> Unit,
     onClear: () -> Unit
 ) {
@@ -4071,10 +4423,36 @@ fun DocumentReviewPanel(
                 }
             }
 
+            Button(
+                onClick = onSearchWeb,
+                enabled = summary != null && !reviewing && !reviewerWebLoading,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Text(
+                    text =
+                        if (reviewerWebLoading) {
+                            "Searching related web information..."
+                        } else {
+                            "Search related web information"
+                        },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
             if (error != null) {
                 Text(
                     text = error,
                     color = Color(0xFFFFB4AB),
+                    fontSize = 13.sp
+                )
+            }
+
+            if (documentOcrWarning != null) {
+                Text(
+                    text = documentOcrWarning,
+                    color = Color(0xFFFFC857),
                     fontSize = 13.sp
                 )
             }
@@ -4194,6 +4572,28 @@ fun DocumentReviewPanel(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
+                }
+
+                if (reviewerWebError != null) {
+                    Text(
+                        text = "Web research unavailable: ${reviewerWebError}",
+                        color = Color(0xFFFFB4AB),
+                        fontSize = 13.sp
+                    )
+                } else if (reviewerWebResults.isNotEmpty()) {
+                    SummaryGroup(
+                        title = "Related web information",
+                        items = listOf(
+                            "These findings came from the web and are separate from the document summary."
+                        ),
+                        fg = fg
+                    )
+                    reviewerWebResults.forEach { result ->
+                        WebSearchResultItem(
+                            result = result,
+                            onOpenLink = onOpenWebLink
+                        )
+                    }
                 }
 
                 Row(

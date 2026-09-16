@@ -86,7 +86,10 @@ fun summarizeDocumentText(
     pages: List<DocumentPage> = emptyList()
 ): DocumentSummary? {
 
-    val text = normalizeText(rawText)
+    val text =
+        removeDocumentNoise(
+            normalizeText(rawText)
+        )
 
     if (!hasReadableText(text)) {
         return null
@@ -425,6 +428,49 @@ private fun normalizeText(rawText: String): String =
             "\n\n"
         )
         .trim()
+
+private fun removeDocumentNoise(text: String): String {
+    val lines =
+        text.lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
+    val repeatedLayoutLines =
+        lines
+            .groupingBy { it.lowercase() }
+            .eachCount()
+            .filter { (line, count) ->
+                count >= 3 &&
+                    line.length <= 100 &&
+                    !line.matches(Regex(".*[.!?]$"))
+            }
+            .keys
+
+    val cleanedLines =
+        lines.filter { line ->
+            line.lowercase() !in repeatedLayoutLines &&
+                !isBoilerplateLine(line)
+        }
+
+    return cleanedLines.joinToString("\n")
+}
+
+private fun isBoilerplateLine(line: String): Boolean {
+    val normalized = line.lowercase()
+    val boilerplateSignals =
+        listOf(
+            "all rights reserved",
+            "confidentiality notice",
+            "this document is confidential",
+            "terms and conditions",
+            "privacy policy",
+            "do not distribute"
+        )
+
+    return boilerplateSignals.any { signal ->
+        normalized.contains(signal)
+    }
+}
 
 private fun focusSentences(
     sentences: List<String>,

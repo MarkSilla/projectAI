@@ -12,6 +12,10 @@ class WebSearchManagerTest {
             extractWebSearchQuery("@web {what is RAM?}")
         )
         assertEquals(
+            "what is RAM?",
+            extractWebSearchQuery("@web what is RAM?")
+        )
+        assertEquals(
             "latest Android news",
             extractWebSearchQuery("  @WEB { latest Android news } ")
         )
@@ -34,6 +38,10 @@ class WebSearchManagerTest {
     @Test
     fun onlyExplicitWebCommandsTriggerSearch() {
         assertTrue(shouldSearchWeb("@web {What is RAM?}"))
+        assertTrue(shouldSearchWeb("@web What is RAM?"))
+        assertTrue(isWebSearchCommand("@web {}"))
+        assertTrue(isWebSearchCommand("  @WEB {what is RAM?}"))
+        assertTrue(!isWebSearchCommand("@website {what is RAM?}"))
         assertTrue(!shouldSearchWeb("What's the latest news today?"))
         assertTrue(!shouldSearchWeb("Find information about Gordon College"))
         assertTrue(!shouldSearchWeb("What is the weather today?"))
@@ -41,6 +49,14 @@ class WebSearchManagerTest {
         assertTrue(!shouldSearchWeb("Open Messenger"))
         assertTrue(!shouldSearchWeb("What is RAM?"))
         assertTrue(extractWebSearchQuery("@web {}") == null)
+        assertTrue(extractWebSearchQuery("@web") == null)
+    }
+
+    @Test
+    fun detectsVideoSearchQueries() {
+        assertTrue(isVideoSearchQuery("videos about Android development"))
+        assertTrue(isVideoSearchQuery("YouTube tutorial for Kotlin"))
+        assertTrue(!isVideoSearchQuery("what is RAM?"))
     }
 
     @Test
@@ -50,6 +66,7 @@ class WebSearchManagerTest {
             <div class="result">
               <a class="result__a" href="https://example.com/news">Latest News</a>
               <a class="result__snippet">Important update &amp; details.</a>
+                            <img src="https://example.com/news.jpg" />
             </div>
             """.trimIndent()
 
@@ -59,6 +76,7 @@ class WebSearchManagerTest {
         assertEquals("Latest News", results[0].title)
         assertEquals("https://example.com/news", results[0].url)
         assertEquals("Important update & details.", results[0].snippet)
+        assertEquals("https://example.com/news.jpg", results[0].imageUrl)
     }
 
     @Test
