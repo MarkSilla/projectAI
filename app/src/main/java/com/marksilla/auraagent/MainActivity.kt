@@ -3601,11 +3601,30 @@ fun DocumentReviewPanel(
                     overflow = TextOverflow.Ellipsis
                 )
 
+                if (summary.executiveSummary.isNotBlank()) {
+                    Text(
+                        text = summary.executiveSummary,
+                        color = fg,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
                 SummaryGroup(
                     title = "Key points",
                     items = summary.keyPoints,
                     fg = fg
                 )
+
+                if (summary.riskFlags.isNotEmpty()) {
+                    SummaryGroup(
+                        title = "Risk flags",
+                        items = summary.riskFlags,
+                        fg = fg
+                    )
+                }
 
                 SummaryGroup(
                     title = "Reviewer notes",
@@ -3617,6 +3636,14 @@ fun DocumentReviewPanel(
                     SummaryGroup(
                         title = "Action items",
                         items = summary.actionItems,
+                        fg = fg
+                    )
+                }
+
+                if (summary.recommendations.isNotEmpty()) {
+                    SummaryGroup(
+                        title = "Recommendations",
+                        items = summary.recommendations,
                         fg = fg
                     )
                 }

@@ -36,6 +36,9 @@ class DocumentSummarizerTest {
         assertTrue(summary.reviewerNotes.isNotEmpty())
         assertTrue(summary.actionItems.isNotEmpty())
         assertTrue(summary.keywords.isNotEmpty())
+        assertTrue(summary.executiveSummary.isNotBlank())
+        assertTrue(summary.riskFlags.isNotEmpty())
+        assertTrue(summary.recommendations.isNotEmpty())
     }
 
     @Test
@@ -105,10 +108,23 @@ class DocumentSummarizerTest {
 
         assertTrue(markdown.contains("# Study Notes.docx"))
         assertTrue(markdown.contains("## Key Points"))
+        assertTrue(markdown.contains("## Executive Summary"))
         assertTrue(markdown.contains("- Focus on the main idea."))
         assertEquals(
             "Study Notes Reviewer.md",
             suggestedReviewerFileName(summary.title)
+        )
+    }
+
+    @Test
+    fun requestsOcrWhenPdfTextIsTooSparse() {
+        val sparseText = "\u0000 \u0001 \u0002 \u0003 "
+
+        assertTrue(shouldAttemptOcr(sparseText))
+        assertFalse(
+            shouldAttemptOcr(
+                "AURA can review the PDF and highlight the main points for the reviewer."
+            )
         )
     }
 }

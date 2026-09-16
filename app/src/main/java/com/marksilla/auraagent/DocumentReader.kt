@@ -1,7 +1,14 @@
 package com.marksilla.auraagent
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.os.ParcelFileDescriptor
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
@@ -106,8 +113,22 @@ fun formatReviewerMarkdown(summary: DocumentSummary): String =
         appendLine("- Words: ${summary.wordCount}")
         appendLine("- Reading time: ${summary.readingTimeMinutes} min")
         appendLine()
+
+        if (summary.executiveSummary.isNotBlank()) {
+            appendLine("## Executive Summary")
+            appendLine(summary.executiveSummary)
+            appendLine()
+        }
+
         appendLine("## Key Points")
         appendMarkdownBullets(summary.keyPoints)
+
+        if (summary.riskFlags.isNotEmpty()) {
+            appendLine()
+            appendLine("## Risk Flags")
+            appendMarkdownBullets(summary.riskFlags)
+        }
+
         appendLine()
         appendLine("## Reviewer Notes")
         appendMarkdownBullets(summary.reviewerNotes)
@@ -116,6 +137,12 @@ fun formatReviewerMarkdown(summary: DocumentSummary): String =
             appendLine()
             appendLine("## Action Items")
             appendMarkdownBullets(summary.actionItems)
+        }
+
+        if (summary.recommendations.isNotEmpty()) {
+            appendLine()
+            appendLine("## Recommendations")
+            appendMarkdownBullets(summary.recommendations)
         }
 
         if (summary.keywords.isNotEmpty()) {
@@ -160,10 +187,89 @@ private fun readPdfDocument(
             }
             .orEmpty()
 
+    val finalText =
+        if (shouldAttemptOcr(text)) {
+            val ocrText = runCatching {
+                readPdfWithOcr(
+                    context = context,
+                    uri = uri,
+                    maxChars = maxChars
+                )
+            }.getOrElse { "" }
+
+            if (ocrText.isNotBlank()) {
+                ocrText
+            } else {
+                text
+            }
+        } else {
+            text
+        }
+
     return DocumentText(
-        text = text,
+        text = finalText,
         sourceType = "PDF"
     )
+}
+
+private fun readPdfWithOcr(
+    context: Context,
+    uri: Uri,
+    maxChars: Int
+): String {
+    val descriptor =
+        context.contentResolver
+            .openFileDescriptor(uri, "r")
+            ?: return ""
+
+    val recognizer =
+        TextRecognition.getClient(
+            TextRecognizerOptions.DEFAULT_OPTIONS
+        )
+
+    return descriptor.use { parcelFileDescriptor ->
+        PdfRenderer(parcelFileDescriptor).use { renderer ->
+            buildString {
+                for (pageIndex in 0 until renderer.pageCount) {
+                    val page = renderer.openPage(pageIndex)
+                    val bitmap =
+                        Bitmap.createBitmap(
+                            page.width,
+                            page.height,
+                            Bitmap.Config.ARGB_8888
+                        )
+
+                    try {
+                        page.render(
+                            bitmap,
+                            null,
+                            null,
+                            PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY
+                        )
+
+                        val image = InputImage.fromBitmap(bitmap, 0)
+                        val result = Tasks.await(recognizer.processImage(image))
+                        val detectedText = result.text.trim()
+
+                        if (detectedText.isNotBlank()) {
+                            if (isNotEmpty()) {
+                                append("\n\n")
+                            }
+                            append(detectedText)
+                        }
+                    } finally {
+                        page.close()
+                        bitmap.recycle()
+                    }
+
+                    if (length >= maxChars) {
+                        break
+                    }
+                }
+            }
+                .take(maxChars)
+        }
+    }
 }
 
 private fun readDocxDocument(
