@@ -211,7 +211,9 @@ private data class ChatResult(
     val tone: ChatResultTone = ChatResultTone.INFO,
     val webResults: List<WebSearchResult> = emptyList(),
     val appChoices: List<InstalledApp> = emptyList(),
-    val videoSearch: Boolean = false
+    val videoSearch: Boolean = false,
+    val webSummary: String? = null,
+    val webKeyPoints: List<String> = emptyList()
 )
 
 internal fun generateAssistantReply(
@@ -1824,9 +1826,14 @@ fun AuraApp(
                 status = "Searching the web..."
                 val response =
                     withContext(Dispatchers.IO) {
-                        webSearchManager.searchDetailed(searchQuery)
+                        webSearchManager.searchDetailedParallel(searchQuery)
                     }
-                val webReply = formatWebSearchReply(response)
+                val webReply =
+                    if (response.results.isNotEmpty()) {
+                        "I found ${response.results.size} relevant sources."
+                    } else {
+                        formatWebSearchReply(response)
+                    }
                 status =
                     if (response.error == null) {
                         "Web search complete"
@@ -1840,7 +1847,9 @@ fun AuraApp(
                         ChatResult(
                             title =
                                 if (response.error == null) {
-                                    if (isVideoSearchQuery(searchQuery)) {
+                                    if (response.results.isEmpty()) {
+                                        "No web results"
+                                    } else if (isVideoSearchQuery(searchQuery)) {
                                         "Video results"
                                     } else {
                                         "Web results"
@@ -1850,7 +1859,11 @@ fun AuraApp(
                                 },
                             detail =
                                 if (response.error == null) {
-                                    "${response.results.size} sources found"
+                                    if (response.results.isEmpty()) {
+                                        "No matching sources found"
+                                    } else {
+                                        "${response.results.size} sources found"
+                                    }
                                 } else {
                                     "Using local assistant behavior"
                                 },
@@ -1861,7 +1874,9 @@ fun AuraApp(
                                     ChatResultTone.WARNING
                                 },
                                 webResults = response.results,
-                                videoSearch = isVideoSearchQuery(searchQuery)
+                                videoSearch = isVideoSearchQuery(searchQuery),
+                                webSummary = buildWebSearchSummary(response.results),
+                                webKeyPoints = buildWebSearchKeyPoints(response.results)
                         )
                 )
                 return@LaunchedEffect
@@ -2443,13 +2458,19 @@ fun AuraApp(
                                             try {
                                                 val response =
                                                     withContext(Dispatchers.IO) {
-                                                        webSearchManager.searchDetailed(
+                                                        webSearchManager.searchDetailedParallel(
                                                             buildReviewerWebQuery(summary)
                                                         )
                                                     }
                                                 if (requestId == reviewerWebRequestId) {
                                                     reviewerWebResults = response.results
-                                                    reviewerWebError = response.error
+                                                    reviewerWebError =
+                                                        response.error
+                                                            ?: if (response.results.isEmpty()) {
+                                                                "No matching web sources found"
+                                                            } else {
+                                                                null
+                                                            }
                                                 }
                                             } catch (_: Exception) {
                                                 if (requestId == reviewerWebRequestId) {
@@ -3258,6 +3279,20 @@ private fun HomeScreen(
                                     lineHeight = 20.sp
                                 )
 
+                                message.result?.let { result ->
+                                    if (
+                                        !isUser &&
+                                            result.webSummary != null &&
+                                            result.webResults.isNotEmpty()
+                                    ) {
+                                        WebSearchSummaryBlock(
+                                            summary = result.webSummary,
+                                            keyPoints = result.webKeyPoints,
+                                            fg = fg
+                                        )
+                                    }
+                                }
+
                                 val quickReplies =
                                     if (!isUser && message.id == lastAssistantId) {
                                         suggestedChatReplies(message)
@@ -3330,6 +3365,15 @@ private fun HomeScreen(
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         result.webResults.forEach { webResult ->
+                                            if (webResult == result.webResults.first()) {
+                                                Text(
+                                                    text = "Sources",
+                                                    color = if (isUser) Color.White else fg,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 14.sp,
+                                                    modifier = Modifier.padding(top = 8.dp)
+                                                )
+                                            }
                                             WebSearchResultItem(
                                                 result = webResult,
                                                 onOpenLink = onOpenWebLink,
@@ -3459,7 +3503,8 @@ private fun HomeScreen(
                             Icon(
                                 imageVector = Icons.Filled.Send,
                                 contentDescription = "Send",
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(18.dp),
+                                tint = Color.White
                             )
                         }
                     }
@@ -3501,6 +3546,66 @@ private fun HomeScreen(
 }
 
 @Composable
+private fun WebSearchSummaryBlock(
+    summary: String,
+    keyPoints: List<String>,
+    fg: Color
+) {
+                    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp)
+                .background(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = "Summary",
+            color = fg,
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp
+        )
+        Text(
+            text = summary,
+            color = fg.copy(alpha = 0.86f),
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
+        if (keyPoints.isNotEmpty()) {
+            Text(
+                text = "Key points",
+                color = fg,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
+            )
+            keyPoints.forEach { point ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Text(
+                        text = "•",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = point,
+                        color = fg.copy(alpha = 0.82f),
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun WebSearchResultItem(
     result: WebSearchResult,
     onOpenLink: (String) -> Unit,
@@ -3527,24 +3632,41 @@ private fun WebSearchResultItem(
                 .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        result.imageUrl?.let { imageUrl ->
-            WebSearchResultImage(imageUrl)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            result.imageUrl?.let { imageUrl ->
+                WebSearchResultImage(
+                    imageUrl = imageUrl,
+                    modifier =
+                        Modifier
+                            .width(84.dp)
+                            .height(64.dp)
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = displayTitle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = displaySnippet,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+                    fontSize = 12.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
-        Text(
-            text = displayTitle,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontWeight = FontWeight.Bold,
-            fontSize = 13.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            text = displaySnippet,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
-            fontSize = 12.sp,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis
-        )
         TextButton(
             onClick = { onOpenLink(result.url) },
             contentPadding = PaddingValues(0.dp)
@@ -3559,7 +3681,10 @@ private fun WebSearchResultItem(
 }
 
 @Composable
-private fun WebSearchResultImage(imageUrl: String) {
+private fun WebSearchResultImage(
+    imageUrl: String,
+    modifier: Modifier = Modifier
+) {
     var bitmap by remember(imageUrl) {
         mutableStateOf<Bitmap?>(null)
     }
@@ -3582,10 +3707,7 @@ private fun WebSearchResultImage(imageUrl: String) {
         Image(
             bitmap = loadedBitmap.asImageBitmap(),
             contentDescription = "Related image",
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(150.dp),
+            modifier = modifier,
             contentScale = ContentScale.Crop
         )
     }
@@ -4595,6 +4717,15 @@ internal fun DocumentReviewPanel(
                         fg = fg
                     )
                     reviewerWebResults.forEach { result ->
+                        if (result == reviewerWebResults.first()) {
+                            Text(
+                                text = "Sources",
+                                color = fg,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
                         WebSearchResultItem(
                             result = result,
                             onOpenLink = onOpenWebLink

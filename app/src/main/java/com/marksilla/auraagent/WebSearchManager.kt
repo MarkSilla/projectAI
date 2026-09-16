@@ -6,6 +6,12 @@ import java.net.URLEncoder
 import java.net.URL
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 
 internal data class WebSearchResult(
     val title: String,
@@ -24,8 +30,21 @@ internal class WebSearchManager(
     private val includeRelatedImages: Boolean = false,
     private val fetch: (String) -> String = ::fetchSearchPage
 ) {
+    private data class CachedResponse(
+        val timestamp: Long,
+        val response: WebSearchResponse
+    )
+
+    private val cache = mutableMapOf<String, CachedResponse>()
+
     fun search(query: String, limit: Int = 5): List<WebSearchResult> {
         return searchDetailed(query, limit).results
+    }
+
+    fun clearCache() {
+        synchronized(cache) {
+            cache.clear()
+        }
     }
 
     fun searchDetailed(query: String, limit: Int = 5): WebSearchResponse {
@@ -33,6 +52,7 @@ internal class WebSearchManager(
         if (cleanQuery.isBlank()) {
             return WebSearchResponse(emptyList())
         }
+        getCached(cleanQuery, limit)?.let { return it }
 
         return try {
             val imageSearch = isImageSearchQuery(cleanQuery)
@@ -40,20 +60,31 @@ internal class WebSearchManager(
                 if (imageSearch) {
                     emptyList()
                 } else {
-                    parseSearchResults(fetch(cleanQuery), limit)
+                    filterVideoResults(
+                        results = rankSearchResults(
+                            results = parseSearchResults(
+                                fetchWithRetry(fetch, cleanQuery),
+                                maxOf(limit, 10)
+                            ),
+                            query = cleanQuery,
+                            limit = maxOf(limit, 10)
+                        ),
+                        videoSearch = isVideoSearchQuery(cleanQuery),
+                        limit = limit
+                    )
                 }
             val imageResults =
                 if (imageSearch || includeRelatedImages) {
                     runCatching {
                         parseImageSearchResults(
-                            fetchImages(cleanQuery),
+                            fetchWithRetry(fetchImages, cleanQuery),
                             limit
                         )
                     }.getOrDefault(emptyList())
                 } else {
                     emptyList()
                 }
-            WebSearchResponse(
+            val response = WebSearchResponse(
                 results =
                     if (imageSearch) {
                         imageResults
@@ -67,6 +98,8 @@ internal class WebSearchManager(
                         regularResults
                     }
             )
+            cacheResponse(cleanQuery, limit, response)
+            response
         } catch (_: Exception) {
             WebSearchResponse(
                 results = emptyList(),
@@ -74,6 +107,135 @@ internal class WebSearchManager(
             )
         }
     }
+
+    suspend fun searchDetailedParallel(
+        query: String,
+        limit: Int = 5
+    ): WebSearchResponse = coroutineScope {
+        val cleanQuery = query.trim()
+        if (cleanQuery.isBlank()) {
+            return@coroutineScope WebSearchResponse(emptyList())
+        }
+        getCached(cleanQuery, limit)?.let { return@coroutineScope it }
+
+        val imageSearch = isImageSearchQuery(cleanQuery)
+        val regularResults: Deferred<List<WebSearchResult>>? =
+            if (imageSearch) {
+                null
+            } else {
+                async(Dispatchers.IO) {
+                    try {
+                        filterVideoResults(
+                            results = rankSearchResults(
+                                results = parseSearchResults(
+                                    fetchWithRetry(fetch, cleanQuery),
+                                    maxOf(limit, 10)
+                                ),
+                                query = cleanQuery,
+                                limit = maxOf(limit, 10)
+                            ),
+                            videoSearch = isVideoSearchQuery(cleanQuery),
+                            limit = limit
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                }
+            }
+        val imageResults =
+            if (imageSearch || includeRelatedImages) {
+                async(Dispatchers.IO) {
+                    try {
+                        parseImageSearchResults(
+                            fetchWithRetry(fetchImages, cleanQuery),
+                            limit
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                }
+            } else {
+                null
+            }
+
+        val parsedRegularResults = regularResults?.await().orEmpty()
+        ensureActive()
+        val parsedImageResults = imageResults?.await().orEmpty()
+        ensureActive()
+        val results =
+            when {
+                imageSearch -> parsedImageResults
+                includeRelatedImages ->
+                    attachRelatedImages(
+                        results = parsedRegularResults,
+                        images = parsedImageResults,
+                        limit = limit
+                    )
+
+                else -> parsedRegularResults
+            }
+
+        val response = WebSearchResponse(results = results)
+        cacheResponse(cleanQuery, limit, response)
+        response
+    }
+
+    private fun cacheKey(query: String, limit: Int): String =
+        "${query.lowercase()}|$limit|$includeRelatedImages"
+
+    private fun getCached(query: String, limit: Int): WebSearchResponse? {
+        val key = cacheKey(query, limit)
+        val cached = synchronized(cache) { cache[key] } ?: return null
+        return if (System.currentTimeMillis() - cached.timestamp < 300_000L) {
+            cached.response
+        } else {
+            synchronized(cache) { cache.remove(key) }
+            null
+        }
+    }
+
+    private fun cacheResponse(
+        query: String,
+        limit: Int,
+        response: WebSearchResponse
+    ) {
+        if (response.error != null || response.results.isEmpty()) {
+            return
+        }
+        synchronized(cache) {
+            if (cache.size >= 20) {
+                cache.remove(cache.keys.first())
+            }
+            cache[cacheKey(query, limit)] =
+                CachedResponse(
+                    timestamp = System.currentTimeMillis(),
+                    response = response
+                )
+        }
+    }
+}
+
+private fun fetchWithRetry(
+    fetch: (String) -> String,
+    query: String,
+    attempts: Int = 2
+): String {
+    var lastError: Exception? = null
+    repeat(attempts.coerceAtLeast(1)) { attempt ->
+        try {
+            return fetch(query)
+        } catch (error: Exception) {
+            lastError = error
+            if (attempt + 1 < attempts) {
+                Thread.sleep(250L)
+            }
+        }
+    }
+    throw lastError ?: IOException("The web search request failed")
 }
 
 private fun attachRelatedImages(
@@ -165,6 +327,24 @@ internal fun isImageSearchQuery(query: String): Boolean {
     ).any { normalized.contains(it) }
 }
 
+private fun filterVideoResults(
+    results: List<WebSearchResult>,
+    videoSearch: Boolean,
+    limit: Int
+): List<WebSearchResult> {
+    if (!videoSearch) {
+        return results.take(limit)
+    }
+
+    return results
+        .filter { result ->
+            val source = "${result.url} ${result.title} ${result.snippet}".lowercase()
+            listOf("youtube", "youtu.be", "vimeo", "video", "watch", "stream")
+                .any { source.contains(it) }
+        }
+        .take(limit)
+}
+
 internal fun parseSearchResults(
     html: String,
     limit: Int = 5
@@ -206,6 +386,38 @@ internal fun parseSearchResults(
         .distinctBy { it.url }
         .take(limit)
         .toList()
+}
+
+internal fun rankSearchResults(
+    results: List<WebSearchResult>,
+    query: String,
+    limit: Int = 5
+): List<WebSearchResult> {
+    val queryWords =
+        query
+            .lowercase()
+            .split(Regex("[^a-z0-9]+"))
+            .filter { it.length >= 3 }
+            .toSet()
+
+    return results
+        .distinctBy { it.url }
+        .sortedByDescending { result ->
+            val host =
+                runCatching { URL(result.url).host.lowercase() }
+                    .getOrDefault("")
+            val text = "${result.title} ${result.snippet}".lowercase()
+            val relevance = queryWords.count { text.contains(it) }
+            val trustedDomain =
+                when {
+                    host.endsWith(".gov") || host.endsWith(".gov.ph") -> 5
+                    host.endsWith(".edu") || host.endsWith(".edu.ph") -> 5
+                    host.endsWith(".org") -> 3
+                    else -> 0
+                }
+            trustedDomain + relevance
+        }
+        .take(limit.coerceAtLeast(0))
 }
 
 internal fun parseImageSearchResults(
@@ -271,15 +483,7 @@ internal fun formatWebSearchReply(response: WebSearchResponse): String {
         appendLine("Summary")
         appendLine(buildWebSearchSummary(response.results))
 
-        val keyPoints =
-            response.results
-                .mapNotNull { result ->
-                    result.snippet
-                        .trim()
-                        .takeIf { it.isNotBlank() }
-                }
-                .distinct()
-                .take(5)
+        val keyPoints = buildWebSearchKeyPoints(response.results)
 
         if (keyPoints.isNotEmpty()) {
             appendLine()
@@ -292,20 +496,74 @@ internal fun formatWebSearchReply(response: WebSearchResponse): String {
 }
 
 internal fun buildWebSearchSummary(results: List<WebSearchResult>): String {
-    val sentences =
-        results
-            .flatMap { result ->
-                result.snippet
-                    .split(Regex("(?<=[.!?])\\s+"))
-                    .map { it.trim() }
-            }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .take(3)
+    val sentences = selectInformativeWebSentences(results)
 
     return sentences
         .joinToString(" ")
         .ifBlank { "The search returned results, but no summary text was available." }
+}
+
+private fun selectInformativeWebSentences(
+    results: List<WebSearchResult>
+): List<String> {
+    val candidates =
+        results
+            .flatMap { result ->
+                result.snippet
+                    .split(Regex("(?<=[.!?])\\s+|\\n+"))
+                    .map { it.trim() }
+            }
+            .filter { sentence ->
+                sentence.length >= 25 &&
+                    !isUrlLikeText(sentence)
+            }
+            .distinctBy(::normalizeWebText)
+
+    if (candidates.isEmpty()) {
+        return emptyList()
+    }
+
+    val frequencies =
+        candidates
+            .flatMap { sentence ->
+                normalizeWebText(sentence)
+                    .split(" ")
+                    .filter { it.length >= 4 }
+            }
+            .groupingBy { it }
+            .eachCount()
+
+    return candidates
+        .sortedByDescending { sentence ->
+            normalizeWebText(sentence)
+                .split(" ")
+                .sumOf { word -> frequencies[word] ?: 0 }
+                .toDouble() / sentence.length.coerceAtLeast(1)
+        }
+        .take(3)
+        .sortedBy { candidates.indexOf(it) }
+}
+
+private fun normalizeWebText(value: String): String {
+    return value
+        .lowercase()
+        .replace(Regex("[^a-z0-9\\s]"), " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+}
+
+internal fun buildWebSearchKeyPoints(
+    results: List<WebSearchResult>
+): List<String> {
+    return results
+        .flatMap { result ->
+            result.snippet
+                .split(Regex("(?<=[.!?])\\s+|\\n+"))
+                .map { it.trim() }
+        }
+        .filter { it.length >= 25 && !isUrlLikeText(it) }
+        .distinctBy(::normalizeWebText)
+        .take(5)
 }
 
 internal fun isUrlLikeText(value: String): Boolean {

@@ -125,6 +125,28 @@ class WebSearchManagerTest {
     }
 
     @Test
+    fun ranksTrustedAndRelevantSourcesFirst() {
+        val ranked =
+            rankSearchResults(
+                results = listOf(
+                    WebSearchResult(
+                        title = "General page",
+                        url = "https://example.com/ram",
+                        snippet = "About unrelated hardware."
+                    ),
+                    WebSearchResult(
+                        title = "RAM guide",
+                        url = "https://www.nasa.gov/ram-guide",
+                        snippet = "RAM stores active data for applications."
+                    )
+                ),
+                query = "what is RAM?"
+            )
+
+        assertEquals("https://www.nasa.gov/ram-guide", ranked.first().url)
+    }
+
+    @Test
     fun normalizesRedirectAndProtocolRelativeSourceLinks() {
         assertEquals(
             "https://example.com/article",
@@ -147,6 +169,31 @@ class WebSearchManagerTest {
         assertTrue(response.results.isEmpty())
         assertEquals(null, response.error)
         assertTrue(formatWebSearchReply(response).contains("couldn't find", ignoreCase = true))
+    }
+
+    @Test
+    fun cachesSuccessfulSearchesUntilCacheIsCleared() {
+        var fetchCount = 0
+        val manager =
+            WebSearchManager(
+                fetch = {
+                    fetchCount += 1
+                    """
+                    <div class="result">
+                      <a class="result__a" href="https://example.com/ram">RAM guide</a>
+                      <a class="result__snippet">RAM stores active data for apps.</a>
+                    </div>
+                    """.trimIndent()
+                }
+            )
+
+        manager.searchDetailed("what is RAM?")
+        manager.searchDetailed("what is RAM?")
+        assertEquals(1, fetchCount)
+
+        manager.clearCache()
+        manager.searchDetailed("what is RAM?")
+        assertEquals(2, fetchCount)
     }
 
     @Test
@@ -173,6 +220,29 @@ class WebSearchManagerTest {
         assertTrue(reply.contains("RAM temporarily stores active data."))
         assertTrue(reply.contains("Key points"))
         assertTrue(reply.contains("More RAM can improve multitasking."))
+    }
+
+    @Test
+    fun summaryRemovesDuplicateAndShortSearchFragments() {
+        val results =
+            listOf(
+                WebSearchResult(
+                    title = "RAM guide",
+                    url = "https://example.com/one",
+                    snippet = "RAM temporarily stores active data."
+                ),
+                WebSearchResult(
+                    title = "Memory basics",
+                    url = "https://example.com/two",
+                    snippet = "RAM temporarily stores active data. More RAM improves multitasking across apps."
+                )
+            )
+
+        val summary = buildWebSearchSummary(results)
+
+        assertTrue(summary.contains("RAM temporarily stores active data."))
+        assertTrue(summary.contains("More RAM improves multitasking across apps."))
+        assertTrue(summary.split("RAM temporarily stores active data.").size - 1 == 1)
     }
 
     @Test
