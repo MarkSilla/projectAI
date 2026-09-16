@@ -1,0 +1,367 @@
+package com.marksilla.auraagent
+
+import android.content.Context
+import android.net.Uri
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.util.Locale
+import java.util.zip.ZipInputStream
+import javax.xml.XMLConstants
+import javax.xml.parsers.DocumentBuilderFactory
+import org.w3c.dom.Node
+
+data class DocumentText(
+    val text: String,
+    val sourceType: String
+)
+
+fun readDocumentTextFromUri(
+    context: Context,
+    uri: Uri,
+    displayName: String,
+    maxChars: Int = 250_000
+): DocumentText {
+    val mimeType =
+        context.contentResolver
+            .getType(uri)
+            .orEmpty()
+            .lowercase(Locale.US)
+    val lowerName =
+        displayName.lowercase(Locale.US)
+
+    return when {
+        mimeType == "application/pdf" ||
+            lowerName.endsWith(".pdf") ->
+            readPdfDocument(
+                context = context,
+                uri = uri,
+                maxChars = maxChars
+            )
+
+        mimeType ==
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+            lowerName.endsWith(".docx") ->
+            readDocxDocument(
+                context = context,
+                uri = uri,
+                maxChars = maxChars
+            )
+
+        else ->
+            readPlainDocument(
+                context = context,
+                uri = uri,
+                maxChars = maxChars
+            )
+    }
+}
+
+fun extractDocxText(
+    inputStream: InputStream,
+    maxChars: Int = 250_000
+): String {
+    val builder = StringBuilder()
+
+    ZipInputStream(inputStream).use { zip ->
+        while (builder.length < maxChars) {
+            val entry = zip.nextEntry ?: break
+
+            if (
+                !entry.isDirectory &&
+                entry.name.startsWith("word/") &&
+                entry.name.endsWith(".xml") &&
+                wordTextEntryNames.any {
+                    entry.name == it || entry.name.startsWith(it)
+                }
+            ) {
+                val bytes = zip.readEntryBytes(maxChars)
+                val entryText = extractWordXmlText(bytes)
+
+                if (entryText.isNotBlank()) {
+                    if (builder.isNotEmpty()) {
+                        builder.append("\n\n")
+                    }
+
+                    builder.append(entryText)
+                }
+            }
+
+            zip.closeEntry()
+        }
+    }
+
+    return builder
+        .toString()
+        .take(maxChars)
+}
+
+fun formatReviewerMarkdown(summary: DocumentSummary): String =
+    buildString {
+        appendLine("# ${summary.title}")
+        appendLine()
+        appendLine("- Words: ${summary.wordCount}")
+        appendLine("- Reading time: ${summary.readingTimeMinutes} min")
+        appendLine()
+        appendLine("## Key Points")
+        appendMarkdownBullets(summary.keyPoints)
+        appendLine()
+        appendLine("## Reviewer Notes")
+        appendMarkdownBullets(summary.reviewerNotes)
+
+        if (summary.actionItems.isNotEmpty()) {
+            appendLine()
+            appendLine("## Action Items")
+            appendMarkdownBullets(summary.actionItems)
+        }
+
+        if (summary.keywords.isNotEmpty()) {
+            appendLine()
+            appendLine("## Keywords")
+            appendLine(summary.keywords.joinToString(", "))
+        }
+    }
+
+fun suggestedReviewerFileName(title: String): String {
+    val base =
+        title
+            .substringBeforeLast('.')
+            .replace(Regex("[^A-Za-z0-9 _-]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .ifBlank {
+                "AURA Reviewer"
+            }
+            .take(64)
+            .trim()
+
+    return "$base Reviewer.md"
+}
+
+private fun readPdfDocument(
+    context: Context,
+    uri: Uri,
+    maxChars: Int
+): DocumentText {
+    PDFBoxResourceLoader.init(context.applicationContext)
+
+    val text =
+        context.contentResolver
+            .openInputStream(uri)
+            ?.use { input ->
+                PDDocument.load(input).use { document ->
+                    PDFTextStripper()
+                        .getText(document)
+                        .take(maxChars)
+                }
+            }
+            .orEmpty()
+
+    return DocumentText(
+        text = text,
+        sourceType = "PDF"
+    )
+}
+
+private fun readDocxDocument(
+    context: Context,
+    uri: Uri,
+    maxChars: Int
+): DocumentText {
+    val text =
+        context.contentResolver
+            .openInputStream(uri)
+            ?.use { input ->
+                extractDocxText(
+                    inputStream = input,
+                    maxChars = maxChars
+                )
+            }
+            .orEmpty()
+
+    return DocumentText(
+        text = text,
+        sourceType = "DOCX"
+    )
+}
+
+private fun readPlainDocument(
+    context: Context,
+    uri: Uri,
+    maxChars: Int
+): DocumentText {
+    val builder = StringBuilder()
+
+    context.contentResolver
+        .openInputStream(uri)
+        ?.bufferedReader()
+        ?.use { reader ->
+            val buffer = CharArray(4096)
+
+            while (builder.length < maxChars) {
+                val read = reader.read(buffer)
+
+                if (read <= 0) {
+                    break
+                }
+
+                val remaining = maxChars - builder.length
+                builder.append(
+                    buffer,
+                    0,
+                    minOf(read, remaining)
+                )
+            }
+        }
+
+    return DocumentText(
+        text = builder.toString(),
+        sourceType = "Text"
+    )
+}
+
+private fun ZipInputStream.readEntryBytes(
+    maxChars: Int
+): ByteArray {
+    val output = ByteArrayOutputStream()
+    val buffer = ByteArray(4096)
+    var total = 0
+
+    while (total < maxChars * 4) {
+        val read = read(buffer)
+
+        if (read <= 0) {
+            break
+        }
+
+        val remaining = maxChars * 4 - total
+        output.write(
+            buffer,
+            0,
+            minOf(read, remaining)
+        )
+        total += read
+    }
+
+    return output.toByteArray()
+}
+
+private fun extractWordXmlText(bytes: ByteArray): String {
+    if (bytes.isEmpty()) {
+        return ""
+    }
+
+    val factory =
+        DocumentBuilderFactory
+            .newInstance()
+            .apply {
+                isNamespaceAware = true
+                runCatching {
+                    setFeature(
+                        XMLConstants.FEATURE_SECURE_PROCESSING,
+                        true
+                    )
+                }
+                runCatching {
+                    setFeature(
+                        "http://apache.org/xml/features/disallow-doctype-decl",
+                        true
+                    )
+                }
+                runCatching {
+                    setFeature(
+                        "http://xml.org/sax/features/external-general-entities",
+                        false
+                    )
+                }
+                runCatching {
+                    setFeature(
+                        "http://xml.org/sax/features/external-parameter-entities",
+                        false
+                    )
+                }
+            }
+
+    return runCatching {
+        val document =
+            factory
+                .newDocumentBuilder()
+                .parse(ByteArrayInputStream(bytes))
+
+        val builder = StringBuilder()
+        appendWordNodeText(
+            node = document.documentElement,
+            builder = builder
+        )
+
+        builder
+            .toString()
+            .replace(Regex("[ \\t]+"), " ")
+            .replace(Regex("\\n{3,}"), "\n\n")
+            .trim()
+    }.getOrDefault("")
+}
+
+private fun appendWordNodeText(
+    node: Node,
+    builder: StringBuilder
+) {
+    val name =
+        node.localName
+            ?: node.nodeName.substringAfter(':')
+
+    when (name) {
+        "t" -> {
+            builder.append(node.textContent)
+            return
+        }
+
+        "tab" -> {
+            builder.append('\t')
+            return
+        }
+
+        "br",
+        "cr" -> {
+            builder.append('\n')
+            return
+        }
+    }
+
+    val children = node.childNodes
+
+    for (index in 0 until children.length) {
+        appendWordNodeText(
+            node = children.item(index),
+            builder = builder
+        )
+    }
+
+    if (name == "p") {
+        builder.append('\n')
+    }
+}
+
+private fun StringBuilder.appendMarkdownBullets(
+    items: List<String>
+) {
+    if (items.isEmpty()) {
+        return
+    }
+
+    items.forEach { item ->
+        appendLine("- $item")
+    }
+}
+
+private val wordTextEntryNames =
+    listOf(
+        "word/document.xml",
+        "word/header",
+        "word/footer",
+        "word/footnotes.xml",
+        "word/endnotes.xml"
+    )

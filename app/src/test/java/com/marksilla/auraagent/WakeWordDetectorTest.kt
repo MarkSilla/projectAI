@@ -88,6 +88,22 @@ class WakeWordDetectorTest {
             "youtube",
             extractOpenCommand("Gusto kong buksan ang YouTube")
         )
+        assertEquals(
+            "facebook",
+            extractOpenCommand("Pasok tayo sa Facebook")
+        )
+        assertEquals(
+            "messenger",
+            extractOpenCommand("Sakay tayo sa Messenger")
+        )
+        assertEquals(
+            "youtube",
+            extractOpenCommand("Lipat tayo sa YouTube")
+        )
+        assertEquals(
+            "facebook",
+            extractOpenCommand("Let's open Facebook")
+        )
     }
 
     @Test
@@ -149,5 +165,37 @@ class WakeWordDetectorTest {
         assertTrue(isDocumentReviewCommand("Hey AURA make a reviewer"))
         assertTrue(isDocumentReviewCommand("Paki summarize ng document"))
         assertFalse(isDocumentReviewCommand("Open Facebook"))
+    }
+
+    @Test
+    fun parsesDeviceCommands() {
+        val alarm =
+            parseDeviceCommand(
+                "Can you set an alarm 9:00am?"
+            ) as DeviceCommand.SetAlarm
+
+        assertEquals(9, alarm.hour)
+        assertEquals(0, alarm.minute)
+
+        val brightness =
+            parseDeviceCommand(
+                "Hey AURA low brightness"
+            ) as DeviceCommand.SetBrightness
+
+        assertEquals(20, brightness.percent)
+
+        val volume =
+            parseDeviceCommand(
+                "volume high"
+            ) as DeviceCommand.SetVolume
+
+        assertEquals(85, volume.percent)
+
+        val wifi =
+            parseDeviceCommand(
+                "open Wi-Fi settings"
+            ) as DeviceCommand.OpenSettings
+
+        assertEquals(DeviceSettingTarget.WIFI, wifi.target)
     }
 }

@@ -375,7 +375,11 @@ class AuraService : Service() {
             val inlineCommand =
                 if (
                     allowInlineCommand &&
-                    !extractOpenCommand(wakeResult).isNullOrBlank()
+                    (
+                        !extractOpenCommand(wakeResult).isNullOrBlank() ||
+                            parseDeviceCommand(wakeResult) != null ||
+                            isDocumentReviewCommand(wakeResult)
+                    )
                 ) {
                     wakeResult
                 } else {
@@ -409,6 +413,43 @@ class AuraService : Service() {
 
         if (command.isNullOrBlank()) {
             finishCommandWithMessage("App not found")
+            return
+        }
+
+        val deviceCommand = parseDeviceCommand(command)
+
+        if (deviceCommand != null) {
+            val result =
+                performDeviceCommand(
+                    context = this,
+                    command = deviceCommand
+                )
+
+            if (result.needsWriteSettingsPermission) {
+                startDeviceActivity(
+                    context = this,
+                    intent = writeSettingsPermissionIntent(this)
+                )
+            }
+
+            finishCommandWithMessage(result.status)
+            return
+        }
+
+        if (isDocumentReviewCommand(command)) {
+            startDeviceActivity(
+                context = this,
+                intent = Intent(
+                    this,
+                    MainActivity::class.java
+                ).apply {
+                    putExtra(
+                        MainActivity.EXTRA_OPEN_REVIEWER,
+                        true
+                    )
+                }
+            )
+            finishCommandWithMessage("Choose a document in AURA")
             return
         }
 

@@ -38,9 +38,14 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -73,11 +78,23 @@ import androidx.core.content.ContextCompat
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_OPEN_REVIEWER =
+            "com.marksilla.auraagent.extra.OPEN_REVIEWER"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         setContent {
-            AuraApp(context = this@MainActivity)
+            AuraApp(
+                context = this@MainActivity,
+                openReviewerOnStart =
+                    intent?.getBooleanExtra(
+                        EXTRA_OPEN_REVIEWER,
+                        false
+                    ) == true
+            )
         }
     }
 }
@@ -85,29 +102,459 @@ class MainActivity : ComponentActivity() {
 private enum class AuraScreen(
     val title: String,
     val label: String,
-    val mark: String
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
 ) {
     HOME(
         title = "AURA Agent",
         label = "Home",
-        mark = "A"
+        icon = Icons.Filled.Home
     ),
     REVIEWER(
         title = "Document Reviewer",
         label = "Reviewer",
-        mark = "R"
+        icon = Icons.Filled.Article
     ),
     SETTINGS(
         title = "Settings",
         label = "Settings",
-        mark = "S"
+        icon = Icons.Filled.Settings
     )
 }
 
+private enum class ChatRole {
+    USER,
+    ASSISTANT
+}
+
+private data class ChatMessage(
+    val id: Long,
+    val role: ChatRole,
+    val text: String
+)
+
+private fun generateAssistantReply(
+    prompt: String,
+    recentContext: List<String> = emptyList(),
+    personalMemory: List<String> = emptyList(),
+    userProfile: UserProfile = UserProfile()
+): String {
+    val trimmed = prompt.trim()
+    if (trimmed.isBlank()) {
+        return "I’m ready when you are."
+    }
+
+    val normalized = trimmed.lowercase(Locale.US)
+    val lastContext =
+        recentContext
+            .map { it.lowercase(Locale.US) }
+            .filter { it.isNotBlank() }
+            .lastOrNull()
+    val repeatedTarget =
+        personalMemory
+            .map { it.lowercase(Locale.US) }
+            .filter { it.isNotBlank() }
+            .groupingBy { it }
+            .eachCount()
+            .maxByOrNull { it.value }
+            ?.key
+
+    val profileHint =
+        userProfile.preferredApps
+            .filter { it.isNotBlank() }
+            .take(2)
+            .joinToString(" and ")
+            .ifBlank { null }
+
+    val habitReminder =
+        if (repeatedTarget != null && repeatedTarget.contains("facebook") && normalized.contains("facebook")) {
+            "You often open Facebook, so I can keep it ready as one of your usual quick actions."
+        } else if (repeatedTarget != null && repeatedTarget.contains("messenger") && normalized.contains("messenger")) {
+            "You usually open Messenger, so I can treat that as part of your routine."
+        } else if (repeatedTarget != null && repeatedTarget.contains("settings") && normalized.contains("settings")) {
+            "You often check settings, so I can handle that quickly for you."
+        } else if (profileHint != null && (normalized.contains("open") || normalized.contains("launch") || normalized.contains("buksan") || normalized.contains("pasok") || normalized.contains("sakay") || normalized.contains("lipat"))) {
+            "I know you usually prefer ${profileHint}, so I can keep that workflow ready."
+        } else {
+            null
+        }
+
+    val quickReply =
+        when {
+            normalized.contains("morning") || normalized.contains("workday") || normalized.contains("focus mode") || normalized.contains("routine") ->
+                "I can set up a focus-friendly morning routine for you: open your priority apps, reduce distractions, and keep your first tasks ready."
+
+            normalized.contains("open") || normalized.contains("launch") || normalized.contains("buksan") || normalized.contains("pasok") || normalized.contains("sakay") || normalized.contains("lipat") ->
+                if (habitReminder != null) {
+                    "I can open that for you. ${habitReminder}"
+                } else if (lastContext != null && (lastContext.contains("facebook") || lastContext.contains("messenger") || lastContext.contains("settings"))) {
+                    "I can open that for you. Based on your recent activity, you were looking at ${lastContext.replace(Regex("^open "), "").trim()} earlier."
+                } else {
+                    "I can open that app for you and keep the action smooth and direct."
+                }
+
+            normalized.contains("review") || normalized.contains("summarize") || normalized.contains("document") || normalized.contains("analyze") || normalized.contains("read") ->
+                "I can review the document and give you a concise, professional summary with key findings and action points."
+
+            normalized.contains("settings") || normalized.contains("brightness") || normalized.contains("volume") || normalized.contains("wifi") || normalized.contains("bluetooth") || normalized.contains("alarm") ->
+                "I can handle that system setting for you and keep the workflow simple and controlled."
+
+            normalized.contains("chat") || normalized.contains("assistant") || normalized.contains("hello") || normalized.contains("hi") || normalized.contains("hey") ->
+                "I’m here to help. You can ask me to open apps, review files, or adjust settings in a professional workflow."
+
+            normalized.contains("favorite") || normalized.contains("save") || normalized.contains("remember") ->
+                "I can save that as a preferred action and use it again the next time you ask for it."
+
+            else ->
+                "I understand your request and can help you act on it quickly with a clean, focused workflow."
+        }
+
+    return quickReply
+}
+
+private data class FavoriteAction(
+    val label: String,
+    val command: String
+)
+
+private data class RoutinePreset(
+    val title: String,
+    val description: String,
+    val appTargets: List<String>
+)
+
+private data class LearnedCommandUsage(
+    val command: String,
+    val count: Int
+)
+
+private data class UserProfile(
+    val preferredApps: List<String> = emptyList(),
+    val routineHints: List<String> = emptyList()
+)
+
+private const val AURA_PREFERENCES = "aura_preferences"
+private const val KEY_FAVORITES = "favorite_actions"
+private const val KEY_COMMAND_HISTORY = "command_history"
+private const val KEY_CHAT_MEMORY = "chat_memory"
+private const val KEY_USER_PROFILE = "user_profile"
+
+private fun loadFavoriteActions(context: Context): List<FavoriteAction> {
+    val prefs = context.getSharedPreferences(AURA_PREFERENCES, Context.MODE_PRIVATE)
+    val raw = prefs.getString(KEY_FAVORITES, "") ?: ""
+    if (raw.isBlank()) {
+        return listOf(
+            FavoriteAction("Open Facebook", "Open Facebook"),
+            FavoriteAction("Open Messenger", "Open Messenger"),
+            FavoriteAction("Open Settings", "Open Settings")
+        )
+    }
+
+    return runCatching {
+        raw
+            .split("\n")
+            .filter { it.contains("::") }
+            .mapNotNull { entry ->
+                val parts = entry.split("::", limit = 2)
+                if (parts.size != 2) {
+                    null
+                } else {
+                    FavoriteAction(
+                        label = parts[0].trim(),
+                        command = parts[1].trim()
+                    )
+                }
+            }
+            .distinctBy { it.command.lowercase(Locale.US) }
+    }.getOrElse {
+        listOf(
+            FavoriteAction("Open Facebook", "Open Facebook"),
+            FavoriteAction("Open Messenger", "Open Messenger"),
+            FavoriteAction("Open Settings", "Open Settings")
+        )
+    }
+}
+
+private fun saveFavoriteActions(context: Context, actions: List<FavoriteAction>) {
+    val prefs = context.getSharedPreferences(AURA_PREFERENCES, Context.MODE_PRIVATE)
+    val serialized =
+        actions
+            .distinctBy { it.command.lowercase(Locale.US) }
+            .joinToString("\n") { "${it.label}::${it.command}" }
+    prefs.edit().putString(KEY_FAVORITES, serialized).apply()
+}
+
+private fun loadCommandHistory(context: Context): List<LearnedCommandUsage> {
+    val prefs = context.getSharedPreferences(AURA_PREFERENCES, Context.MODE_PRIVATE)
+    val raw = prefs.getString(KEY_COMMAND_HISTORY, "") ?: ""
+    if (raw.isBlank()) {
+        return emptyList()
+    }
+
+    return runCatching {
+        raw
+            .split("\n")
+            .filter { it.contains("::") }
+            .mapNotNull { entry ->
+                val parts = entry.split("::", limit = 2)
+                if (parts.size != 2) {
+                    null
+                } else {
+                    val command = parts[0].trim()
+                    val count = parts[1].trim().toIntOrNull() ?: 1
+                    if (command.isBlank()) null else LearnedCommandUsage(command, count)
+                }
+            }
+    }.getOrElse { emptyList() }
+}
+
+private fun saveCommandHistory(context: Context, history: List<LearnedCommandUsage>) {
+    val prefs = context.getSharedPreferences(AURA_PREFERENCES, Context.MODE_PRIVATE)
+    val serialized =
+        history
+            .sortedByDescending { it.count }
+            .joinToString("\n") { "${it.command}::${it.count}" }
+    prefs.edit().putString(KEY_COMMAND_HISTORY, serialized).apply()
+}
+
+private fun loadChatMemory(context: Context): List<String> {
+    val prefs = context.getSharedPreferences(AURA_PREFERENCES, Context.MODE_PRIVATE)
+    val raw = prefs.getString(KEY_CHAT_MEMORY, "") ?: ""
+    if (raw.isBlank()) {
+        return emptyList()
+    }
+
+    return raw.split("\n").filter { it.isNotBlank() }.takeLast(20)
+}
+
+private fun saveChatMemory(context: Context, memory: List<String>) {
+    val prefs = context.getSharedPreferences(AURA_PREFERENCES, Context.MODE_PRIVATE)
+    val serialized = memory.filter { it.isNotBlank() }.takeLast(20).joinToString("\n")
+    prefs.edit().putString(KEY_CHAT_MEMORY, serialized).apply()
+}
+
+private fun loadUserProfile(context: Context): UserProfile {
+    val prefs = context.getSharedPreferences(AURA_PREFERENCES, Context.MODE_PRIVATE)
+    val raw = prefs.getString(KEY_USER_PROFILE, "") ?: ""
+    if (raw.isBlank()) {
+        return UserProfile()
+    }
+
+    return runCatching {
+        val lines = raw.split("\n").filter { it.isNotBlank() }
+        val preferredApps = lines.firstOrNull { it.startsWith("preferred_apps::") }
+            ?.removePrefix("preferred_apps::")
+            ?.split("|")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?: emptyList()
+        val routineHints = lines.firstOrNull { it.startsWith("routine::") }
+            ?.removePrefix("routine::")
+            ?.split("|")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?: emptyList()
+
+        UserProfile(
+            preferredApps = preferredApps,
+            routineHints = routineHints
+        )
+    }.getOrElse { UserProfile() }
+}
+
+private fun saveUserProfile(context: Context, profile: UserProfile) {
+    val prefs = context.getSharedPreferences(AURA_PREFERENCES, Context.MODE_PRIVATE)
+    val serialized = buildList {
+        if (profile.preferredApps.isNotEmpty()) {
+            add("preferred_apps::${profile.preferredApps.joinToString("|")}")
+        }
+        if (profile.routineHints.isNotEmpty()) {
+            add("routine::${profile.routineHints.joinToString("|")}")
+        }
+    }.joinToString("\n")
+    prefs.edit().putString(KEY_USER_PROFILE, serialized).apply()
+}
+
+private fun inferUserProfile(
+    history: List<LearnedCommandUsage>,
+    memory: List<String>,
+    favorites: List<FavoriteAction>
+): UserProfile {
+    val tracked = mutableListOf<String>()
+    tracked += favorites.map { it.label }
+    tracked += history.map { it.command }
+    tracked += memory
+
+    val detected =
+        tracked
+            .map { it.lowercase(Locale.US) }
+            .filter { it.isNotBlank() }
+            .fold(mutableListOf<String>()) { acc, item ->
+                when {
+                    item.contains("facebook") -> acc += "Facebook"
+                    item.contains("messenger") -> acc += "Messenger"
+                    item.contains("settings") -> acc += "Settings"
+                    item.contains("brightness") -> acc += "Brightness"
+                    item.contains("volume") -> acc += "Volume"
+                    item.contains("review") || item.contains("document") -> acc += "Document Review"
+                    else -> Unit
+                }
+                acc
+            }
+            .distinct()
+            .take(3)
+
+    val routineHints =
+        if (detected.isNotEmpty()) {
+            detected
+        } else {
+            listOf("Open Facebook", "Open Settings")
+        }
+
+    return UserProfile(
+        preferredApps = detected,
+        routineHints = routineHints
+    )
+}
+
+private fun mergeConversationMemory(
+    memory: List<String>,
+    userPrompt: String,
+    assistantReply: String
+): List<String> {
+    val updated =
+        memory.toMutableList().apply {
+            add(userPrompt.trim())
+            add(assistantReply.trim())
+        }
+
+    return updated
+        .filter { it.isNotBlank() }
+        .takeLast(20)
+}
+
+private fun mergeCommandHistory(
+    history: List<LearnedCommandUsage>,
+    command: String
+): List<LearnedCommandUsage> {
+    val trimmed = command.trim()
+    if (trimmed.isBlank()) {
+        return history
+    }
+
+    val updated =
+        history
+            .map {
+                if (it.command.equals(trimmed, ignoreCase = true)) {
+                    it.copy(count = it.count + 1)
+                } else {
+                    it
+                }
+            }
+            .toMutableList()
+
+    if (updated.none { it.command.equals(trimmed, ignoreCase = true) }) {
+        updated += LearnedCommandUsage(trimmed, 1)
+    }
+
+    return updated
+        .sortedByDescending { it.count }
+        .take(10)
+}
+
+private fun buildHabitSuggestions(
+    memory: List<String>,
+    history: List<LearnedCommandUsage>
+): List<String> {
+    val routineCommands =
+        memory
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .map { it.lowercase(Locale.US) }
+            .filter { text ->
+                text.contains("open") ||
+                    text.contains("buksan") ||
+                    text.contains("settings") ||
+                    text.contains("brightness") ||
+                    text.contains("volume") ||
+                    text.contains("review")
+            }
+            .groupBy { it }
+            .mapValues { it.value.size }
+            .entries
+            .sortedByDescending { it.value }
+            .map { it.key }
+            .take(3)
+
+    val learned =
+        history
+            .sortedByDescending { it.count }
+            .map { it.command }
+            .filter { it.isNotBlank() }
+
+    return (routineCommands + learned)
+        .distinct()
+        .take(5)
+}
+
+private fun buildSmartSuggestions(
+    history: List<LearnedCommandUsage>,
+    memory: List<String>,
+    fallback: List<String>
+): List<String> {
+    val learned =
+        history
+            .sortedByDescending { it.count }
+            .map { it.command }
+            .filter { it.isNotBlank() }
+
+    val habits =
+        buildHabitSuggestions(
+            memory = memory,
+            history = history
+        )
+
+    return (habits + learned + fallback)
+        .distinct()
+        .take(5)
+}
+
+private fun defaultRoutinePresets(): List<RoutinePreset> =
+    listOf(
+        RoutinePreset(
+            title = "Morning",
+            description = "Priority start-up",
+            appTargets = listOf("Facebook", "Messenger", "Settings")
+        ),
+        RoutinePreset(
+            title = "Focus",
+            description = "Deep work setup",
+            appTargets = listOf("Chrome", "Settings")
+        ),
+        RoutinePreset(
+            title = "Evening",
+            description = "Wind down mode",
+            appTargets = listOf("YouTube", "Settings")
+        )
+    )
+
+private data class PendingConfirmation(
+    val target: String,
+    val originalCommand: String
+)
+
 @Composable
-fun AuraApp(context: Context) {
+fun AuraApp(
+    context: Context,
+    openReviewerOnStart: Boolean = false
+) {
     var currentScreen by remember {
-        mutableStateOf(AuraScreen.HOME)
+        mutableStateOf(
+            if (openReviewerOnStart) {
+                AuraScreen.REVIEWER
+            } else {
+                AuraScreen.HOME
+            }
+        )
     }
     var command by remember {
         mutableStateOf("")
@@ -147,6 +594,68 @@ fun AuraApp(context: Context) {
             )
         )
     }
+    var chatInput by remember {
+        mutableStateOf("")
+    }
+    val commandUnderstandingEngine = remember { AuraCommandUnderstanding() }
+    var commandHistory by remember {
+        mutableStateOf(loadCommandHistory(context))
+    }
+    var favoriteActions by remember {
+        mutableStateOf(loadFavoriteActions(context))
+    }
+    var routinePresets by remember {
+        mutableStateOf(defaultRoutinePresets())
+    }
+    var pendingConfirmation by remember {
+        mutableStateOf<PendingConfirmation?>(null)
+    }
+    var chatMessages by remember {
+        mutableStateOf(
+            listOf(
+                ChatMessage(
+                    id = 1L,
+                    role = ChatRole.ASSISTANT,
+                    text = "Hello. I’m AURA. Ask me to open an app, review a file, or change a system setting."
+                )
+            )
+        )
+    }
+    var conversationMemory by remember {
+        mutableStateOf(loadChatMemory(context))
+    }
+    var userProfile by remember {
+        mutableStateOf(loadUserProfile(context))
+    }
+    val recentChatContext =
+        remember(chatMessages.size, conversationMemory.size) {
+            (conversationMemory + chatMessages.map { it.text }).takeLast(12)
+        }
+    val smartSuggestions =
+        buildSmartSuggestions(
+            history = commandHistory,
+            memory = conversationMemory,
+            fallback = listOf(
+                "Open Facebook",
+                "Open Messenger",
+                "Review document",
+                "Open Settings",
+                "Brightness low"
+            )
+        )
+    val derivedProfile =
+        remember(commandHistory, conversationMemory, favoriteActions) {
+            inferUserProfile(
+                history = commandHistory,
+                memory = conversationMemory,
+                favorites = favoriteActions
+            )
+        }
+
+    LaunchedEffect(derivedProfile) {
+        userProfile = derivedProfile
+        saveUserProfile(context, derivedProfile)
+    }
     var documentName by remember {
         mutableStateOf<String?>(null)
     }
@@ -163,6 +672,9 @@ fun AuraApp(context: Context) {
         mutableStateOf(
             getInstalledApps(context)
         )
+    }
+    var pendingDeviceCommand by remember {
+        mutableStateOf<DeviceCommand?>(null)
     }
 
     fun overlaySettingsIntent(): Intent =
@@ -317,6 +829,90 @@ fun AuraApp(context: Context) {
             }
         }
 
+    val writeSettingsLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult()
+        ) {
+            val commandToRetry = pendingDeviceCommand
+            pendingDeviceCommand = null
+
+            if (
+                commandToRetry != null &&
+                Settings.System.canWrite(context)
+            ) {
+                val result =
+                    performDeviceCommand(
+                        context = context,
+                        command = commandToRetry
+                    )
+
+                status = result.status
+                recent =
+                    listOf(result.recent) +
+                        recent.take(4)
+            } else {
+                status = "Modify system settings is required"
+            }
+        }
+
+    fun runDeviceCommand(deviceCommand: DeviceCommand) {
+        val result =
+            performDeviceCommand(
+                context = context,
+                command = deviceCommand
+            )
+
+        status = result.status
+        recent =
+            listOf(result.recent) +
+                recent.take(4)
+
+        if (result.needsWriteSettingsPermission) {
+            pendingDeviceCommand = deviceCommand
+            writeSettingsLauncher.launch(
+                writeSettingsPermissionIntent(context)
+            )
+        }
+    }
+
+    fun runRoutinePreset(preset: RoutinePreset) {
+        val openedTargets =
+            preset.appTargets.mapNotNull { target ->
+                val app = findApp(installedApps, target)
+                if (app != null && openApp(context, app)) {
+                    app.name
+                } else {
+                    null
+                }
+            }
+
+        if (openedTargets.isNotEmpty()) {
+            status = "Started ${preset.title} routine"
+            recent = listOf("${preset.title} routine") + recent.take(4)
+            val reply =
+                "Started the ${preset.title.lowercase(Locale.US)} routine. I opened ${openedTargets.joinToString(", ")}."
+            conversationMemory =
+                mergeConversationMemory(
+                    memory = conversationMemory,
+                    userPrompt = "Start ${preset.title} routine",
+                    assistantReply = reply
+                )
+            saveChatMemory(context, conversationMemory)
+            chatMessages +=
+                ChatMessage(
+                    id = System.currentTimeMillis(),
+                    role = ChatRole.USER,
+                    text = "Start ${preset.title} routine"
+                ) + ChatMessage(
+                    id = System.currentTimeMillis() + 1L,
+                    role = ChatRole.ASSISTANT,
+                    text = reply
+                )
+        } else {
+            status = "Unable to start ${preset.title} routine"
+        }
+    }
+
     val documentLauncher =
         rememberLauncherForActivityResult(
             contract = ActivityResultContracts.OpenDocument()
@@ -336,29 +932,34 @@ fun AuraApp(context: Context) {
                         uri = uri
                     )
 
-                val text =
-                    readDocumentText(
+                val documentText =
+                    readDocumentTextFromUri(
                         context = context,
-                        uri = uri
+                        uri = uri,
+                        displayName = name
                     )
 
-                name to summarizeDocumentText(
-                    title = name,
-                    rawText = text
+                Triple(
+                    name,
+                    documentText.sourceType,
+                    summarizeDocumentText(
+                        title = name,
+                        rawText = documentText.text
+                    )
                 )
             }
                 .onSuccess { result ->
-                    val (name, summary) = result
+                    val (name, sourceType, summary) = result
                     documentName = name
                     documentSummary = summary
 
                     if (summary == null) {
                         documentError =
-                            "Not enough readable text found."
+                            "Not enough readable text found in this $sourceType."
                         status = "Document could not be summarized"
                     } else {
                         documentError = null
-                        status = "Document summarized"
+                        status = "$sourceType summarized"
                         recent =
                             listOf(
                                 "Reviewed $name"
@@ -373,6 +974,39 @@ fun AuraApp(context: Context) {
                 }
 
             reviewingDocument = false
+        }
+
+    val saveReviewerLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.CreateDocument("text/markdown")
+        ) { uri ->
+            val summary = documentSummary
+
+            if (uri == null || summary == null) {
+                return@rememberLauncherForActivityResult
+            }
+
+            val saved =
+                runCatching {
+                    context.contentResolver
+                        .openOutputStream(uri)
+                        ?.bufferedWriter()
+                        ?.use { writer ->
+                            writer.write(
+                                formatReviewerMarkdown(summary)
+                            )
+                        }
+                        ?: error("No output stream")
+                }.isSuccess
+
+            if (saved) {
+                status = "Reviewer saved"
+                recent =
+                    listOf("Saved reviewer") +
+                        recent.take(4)
+            } else {
+                status = "Reviewer save failed"
+            }
         }
 
     fun enableAura() {
@@ -413,11 +1047,25 @@ fun AuraApp(context: Context) {
         )
     }
 
+    fun saveReviewer(summary: DocumentSummary) {
+        saveReviewerLauncher.launch(
+            suggestedReviewerFileName(summary.title)
+        )
+    }
+
     fun executeCommand() {
         val input = command.trim()
 
         if (input.isBlank()) {
             status = "Enter a command"
+            return
+        }
+
+        val deviceCommand = parseDeviceCommand(input)
+
+        if (deviceCommand != null) {
+            runDeviceCommand(deviceCommand)
+            command = ""
             return
         }
 
@@ -613,12 +1261,259 @@ fun AuraApp(context: Context) {
                                 auraEnabled = auraEnabled,
                                 auraPaused = auraPaused,
                                 status = status,
-                                command = command,
-                                recent = recent,
-                                onCommandChange = {
-                                    command = it
+                                chatInput = chatInput,
+                                chatMessages = chatMessages,
+                                favoriteActions = favoriteActions,
+                                routinePresets = routinePresets,
+                                pendingConfirmation = pendingConfirmation,
+                                onChatInputChange = {
+                                    chatInput = it
                                 },
-                                onExecuteCommand = ::executeCommand,
+                                onSendChat = {
+                                    val input = chatInput.trim()
+                                    if (input.isBlank()) {
+                                        return@HomeScreen
+                                    }
+
+                                    val lowerInput = input.lowercase(Locale.US)
+                                    val replyText =
+                                        generateAssistantReply(
+                                            prompt = input,
+                                            recentContext = recentChatContext,
+                                            personalMemory = conversationMemory,
+                                            userProfile = userProfile
+                                        )
+
+                                    if (
+                                        lowerInput.contains("remember") ||
+                                        lowerInput.contains("save") ||
+                                        lowerInput.contains("favorite")
+                                    ) {
+                                        val label =
+                                            input
+                                                .replace(Regex("(?i)remember|save|favorite"), "")
+                                                .trim()
+                                                .ifBlank { "Custom action" }
+
+                                        val favorite = FavoriteAction(label, input)
+                                        val merged =
+                                            listOf(favorite) + favoriteActions.filter {
+                                                it.command.lowercase(Locale.US) != input.lowercase(Locale.US)
+                                            }
+                                        favoriteActions = merged.take(5)
+                                        saveFavoriteActions(context, favoriteActions)
+                                        conversationMemory =
+                                            mergeConversationMemory(
+                                                memory = conversationMemory,
+                                                userPrompt = input,
+                                                assistantReply = "Saved as a favorite action. I’ll remember that for next time."
+                                            )
+                                        saveChatMemory(context, conversationMemory)
+                                        chatMessages =
+                                            chatMessages + ChatMessage(
+                                                id = System.currentTimeMillis(),
+                                                role = ChatRole.USER,
+                                                text = input
+                                            ) + ChatMessage(
+                                                id = System.currentTimeMillis() + 1L,
+                                                role = ChatRole.ASSISTANT,
+                                                text = "Saved as a favorite action. I’ll remember that for next time."
+                                            )
+                                        chatInput = ""
+                                        return@HomeScreen
+                                    }
+
+                                    if (pendingConfirmation != null &&
+                                        (
+                                            isAffirmativeConfirmation(input) ||
+                                                isNegativeConfirmation(input)
+                                        )
+                                    ) {
+                                        val pending = pendingConfirmation!!
+                                        if (isAffirmativeConfirmation(input)) {
+                                            val app = findApp(installedApps, pending.target)
+                                            if (app != null) {
+                                                val opened = openApp(context, app)
+                                                status =
+                                                    if (opened) {
+                                                        "Opening ${app.name}"
+                                                    } else {
+                                                        "Cannot open ${app.name}"
+                                                    }
+                                                recent =
+                                                    listOf("Open ${app.name}") + recent.take(4)
+                                                commandHistory =
+                                                    mergeCommandHistory(commandHistory, pending.originalCommand)
+                                                saveCommandHistory(context, commandHistory)
+                                            }
+                                            chatMessages =
+                                                chatMessages + ChatMessage(
+                                                    id = System.currentTimeMillis(),
+                                                    role = ChatRole.USER,
+                                                    text = input
+                                                ) + ChatMessage(
+                                                    id = System.currentTimeMillis() + 1L,
+                                                    role = ChatRole.ASSISTANT,
+                                                    text = if (app != null) {
+                                                        "Opening ${app.name} now."
+                                                    } else {
+                                                        "I’m ready to open ${pending.target}."
+                                                    }
+                                                )
+                                        } else {
+                                            chatMessages =
+                                                chatMessages + ChatMessage(
+                                                    id = System.currentTimeMillis(),
+                                                    role = ChatRole.USER,
+                                                    text = input
+                                                ) + ChatMessage(
+                                                    id = System.currentTimeMillis() + 1L,
+                                                    role = ChatRole.ASSISTANT,
+                                                    text = "Okay, I won’t open it."
+                                                )
+                                        }
+                                        pendingConfirmation = null
+                                        chatInput = ""
+                                        return@HomeScreen
+                                    }
+
+                                    val understanding =
+                                        commandUnderstandingEngine.understand(
+                                            command = input,
+                                            installedApps = installedApps
+                                        )
+                                    val action = decideOpenAppAction(understanding)
+                                    val userMessage =
+                                        ChatMessage(
+                                            id = System.currentTimeMillis(),
+                                            role = ChatRole.USER,
+                                            text = input
+                                        )
+
+                                    when (action) {
+                                        CommandAction.EXECUTE -> {
+                                            val target = understanding.target ?: ""
+                                            val app = findApp(installedApps, target)
+                                            if (app != null) {
+                                                val opened = openApp(context, app)
+                                                if (opened) {
+                                                    status = "Opening ${app.name}"
+                                                    recent = listOf("Open ${app.name}") + recent.take(4)
+                                                    commandUnderstandingEngine.learnSuccessfulCommand(
+                                                        command = input,
+                                                        installedApps = installedApps,
+                                                        understanding = understanding
+                                                    )
+                                                    commandHistory =
+                                                        mergeCommandHistory(commandHistory, input)
+                                                    saveCommandHistory(context, commandHistory)
+                                                } else {
+                                                    status = "Cannot open ${app.name}"
+                                                }
+                                            }
+                                            val finalAssistantReply =
+                                                if (app != null) {
+                                                    "Opening ${app.name} now."
+                                                } else {
+                                                    replyText
+                                                }
+                                            conversationMemory =
+                                                mergeConversationMemory(
+                                                    memory = conversationMemory,
+                                                    userPrompt = input,
+                                                    assistantReply = finalAssistantReply
+                                                )
+                                            saveChatMemory(context, conversationMemory)
+                                            chatMessages =
+                                                chatMessages + userMessage + ChatMessage(
+                                                    id = System.currentTimeMillis() + 1L,
+                                                    role = ChatRole.ASSISTANT,
+                                                    text = finalAssistantReply
+                                                )
+                                        }
+
+                                        CommandAction.CONFIRM -> {
+                                            val target = understanding.target ?: "Unknown app"
+                                            pendingConfirmation = PendingConfirmation(target, input)
+                                            val confirmReply = "Did you mean ${target}? Please say yes or no."
+                                            conversationMemory =
+                                                mergeConversationMemory(
+                                                    memory = conversationMemory,
+                                                    userPrompt = input,
+                                                    assistantReply = confirmReply
+                                                )
+                                            saveChatMemory(context, conversationMemory)
+                                            chatMessages =
+                                                chatMessages + userMessage + ChatMessage(
+                                                    id = System.currentTimeMillis() + 1L,
+                                                    role = ChatRole.ASSISTANT,
+                                                    text = confirmReply
+                                                )
+                                        }
+
+                                        CommandAction.UNKNOWN -> {
+                                            conversationMemory =
+                                                mergeConversationMemory(
+                                                    memory = conversationMemory,
+                                                    userPrompt = input,
+                                                    assistantReply = replyText
+                                                )
+                                            saveChatMemory(context, conversationMemory)
+                                            chatMessages =
+                                                chatMessages + userMessage + ChatMessage(
+                                                    id = System.currentTimeMillis() + 1L,
+                                                    role = ChatRole.ASSISTANT,
+                                                    text = replyText
+                                                )
+                                        }
+                                    }
+
+                                    chatInput = ""
+                                },
+                                onCopyMessage = { text ->
+                                    val clipboardManager =
+                                        androidx.compose.ui.platform.LocalClipboardManager.current
+                                    clipboardManager.setText(
+                                        androidx.compose.ui.text.AnnotatedString(text)
+                                    )
+                                    status = "Copied response"
+                                },
+                                onRegenerateLast = {
+                                    val lastUserPrompt =
+                                        chatMessages.lastOrNull { it.role == ChatRole.USER }?.text
+                                            ?: return@HomeScreen
+
+                                    val lastAssistantIndex =
+                                        chatMessages.lastIndexOfLast { it.role == ChatRole.ASSISTANT }
+
+                                    if (lastAssistantIndex >= 0) {
+                                        val regeneratedText =
+                                            generateAssistantReply(
+                                                prompt = lastUserPrompt,
+                                                recentContext = recentChatContext,
+                                                personalMemory = conversationMemory,
+                                                userProfile = userProfile
+                                            )
+                                        val regenerated =
+                                            ChatMessage(
+                                                id = System.currentTimeMillis(),
+                                                role = ChatRole.ASSISTANT,
+                                                text = regeneratedText
+                                            )
+                                        conversationMemory =
+                                            mergeConversationMemory(
+                                                memory = conversationMemory,
+                                                userPrompt = lastUserPrompt,
+                                                assistantReply = regeneratedText
+                                            )
+                                        saveChatMemory(context, conversationMemory)
+
+                                        chatMessages =
+                                            chatMessages.toMutableList().apply {
+                                                set(lastAssistantIndex, regenerated)
+                                            }
+                                    }
+                                },
                                 onEnableAura = ::enableAura,
                                 onPauseAura = ::pauseAuraService,
                                 onResumeAura = ::resumeAuraService,
@@ -635,6 +1530,16 @@ fun AuraApp(context: Context) {
                                     } else {
                                         startManualVoiceInput()
                                     }
+                                },
+                                onSaveFavorite = { favorite ->
+                                    val updated = listOf(favorite) + favoriteActions.filter {
+                                        it.command.lowercase(Locale.US) != favorite.command.lowercase(Locale.US)
+                                    }
+                                    favoriteActions = updated.take(5)
+                                    saveFavoriteActions(context, favoriteActions)
+                                },
+                                onSelectFavorite = { commandText ->
+                                    chatInput = commandText
                                 }
                             )
 
@@ -650,6 +1555,7 @@ fun AuraApp(context: Context) {
                                 documentError = documentError,
                                 reviewingDocument = reviewingDocument,
                                 onPickDocument = ::openDocumentReviewer,
+                                onSave = ::saveReviewer,
                                 onClear = {
                                     documentName = null
                                     documentSummary = null
@@ -753,6 +1659,72 @@ fun AuraApp(context: Context) {
                                         } else {
                                             "Downloads shortcut unavailable"
                                         }
+                                },
+                                onBrightnessLow = {
+                                    runDeviceCommand(
+                                        DeviceCommand.SetBrightness(20)
+                                    )
+                                },
+                                onBrightnessMedium = {
+                                    runDeviceCommand(
+                                        DeviceCommand.SetBrightness(55)
+                                    )
+                                },
+                                onBrightnessHigh = {
+                                    runDeviceCommand(
+                                        DeviceCommand.SetBrightness(90)
+                                    )
+                                },
+                                onVolumeLow = {
+                                    runDeviceCommand(
+                                        DeviceCommand.SetVolume(25)
+                                    )
+                                },
+                                onVolumeMedium = {
+                                    runDeviceCommand(
+                                        DeviceCommand.SetVolume(55)
+                                    )
+                                },
+                                onVolumeHigh = {
+                                    runDeviceCommand(
+                                        DeviceCommand.SetVolume(90)
+                                    )
+                                },
+                                onSetMorningAlarm = {
+                                    runDeviceCommand(
+                                        DeviceCommand.SetAlarm(
+                                            hour = 9,
+                                            minute = 0
+                                        )
+                                    )
+                                },
+                                onOpenWifi = {
+                                    runDeviceCommand(
+                                        DeviceCommand.OpenSettings(
+                                            DeviceSettingTarget.WIFI
+                                        )
+                                    )
+                                },
+                                onOpenBluetooth = {
+                                    runDeviceCommand(
+                                        DeviceCommand.OpenSettings(
+                                            DeviceSettingTarget.BLUETOOTH
+                                        )
+                                    )
+                                },
+                                onOpenDisplay = {
+                                    runDeviceCommand(
+                                        DeviceCommand.OpenSettings(
+                                            DeviceSettingTarget.DISPLAY
+                                        )
+                                    )
+                                },
+                                onOpenBattery = {
+                                    runDeviceCommand(
+                                        DeviceCommand.OpenSettings(
+                                            DeviceSettingTarget.BATTERY
+                                        )
+                                    )
                                 }
                             )
                     }
@@ -775,9 +1747,9 @@ private fun AuraBottomBar(
                     onScreenSelected(screen)
                 },
                 icon = {
-                    Text(
-                        text = screen.mark,
-                        fontWeight = FontWeight.Bold
+                    Icon(
+                        imageVector = screen.icon,
+                        contentDescription = screen.label
                     )
                 },
                 label = {
@@ -805,15 +1777,23 @@ private fun HomeScreen(
     auraEnabled: Boolean,
     auraPaused: Boolean,
     status: String,
-    command: String,
-    recent: List<String>,
-    onCommandChange: (String) -> Unit,
-    onExecuteCommand: () -> Unit,
+    chatInput: String,
+    chatMessages: List<ChatMessage>,
+    favoriteActions: List<FavoriteAction>,
+    routinePresets: List<RoutinePreset>,
+    pendingConfirmation: PendingConfirmation?,
+    onChatInputChange: (String) -> Unit,
+    onSendChat: () -> Unit,
+    onCopyMessage: (String) -> Unit,
+    onRegenerateLast: () -> Unit,
     onEnableAura: () -> Unit,
     onPauseAura: () -> Unit,
     onResumeAura: () -> Unit,
     onStopAura: () -> Unit,
-    onTalkToAura: () -> Unit
+    onTalkToAura: () -> Unit,
+    onSaveFavorite: (FavoriteAction) -> Unit,
+    onSelectFavorite: (String) -> Unit,
+    onRunRoutinePreset: (RoutinePreset) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -829,7 +1809,7 @@ private fun HomeScreen(
         item {
             ScreenHeader(
                 title = "AURA Agent",
-                subtitle = "Your phone, ready to help.",
+                subtitle = "Professional assistant, ready to act.",
                 fg = fg,
                 modifier =
                     Modifier
@@ -866,29 +1846,254 @@ private fun HomeScreen(
         }
 
         item {
-            OutlinedTextField(
-                value = command,
-                onValueChange = onCommandChange,
+            Column(
                 modifier =
                     Modifier
                         .widthIn(max = contentMaxWidth)
                         .fillMaxWidth(),
-                placeholder = {
-                    Text("Try: Open Facebook")
-                },
-                singleLine = true,
-                trailingIcon = {
-                    TextButton(
-                        onClick = onExecuteCommand
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Quick actions",
+                    color = fg,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    smartSuggestions.forEach { suggestion ->
+                        TextButton(
+                            onClick = {
+                                onChatInputChange(suggestion)
+                            },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = suggestion,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (routinePresets.isNotEmpty()) {
+            item {
+                Column(
+                    modifier =
+                        Modifier
+                            .widthIn(max = contentMaxWidth)
+                            .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Routine presets",
+                        color = fg,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                    routinePresets.forEach { preset ->
+                        Button(
+                            onClick = {
+                                onRunRoutinePreset(preset)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.Start
+                            ) {
+                                Text(
+                                    text = preset.title,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = preset.description,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (favoriteActions.isNotEmpty()) {
+            item {
+                Column(
+                    modifier =
+                        Modifier
+                            .widthIn(max = contentMaxWidth)
+                            .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Favorites",
+                        color = fg,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                    favoriteActions.forEach { favorite ->
+                        TextButton(
+                            onClick = {
+                                onSelectFavorite(favorite.command)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = favorite.label,
+                                color = fg,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (pendingConfirmation != null) {
+            item {
+                Card(
+                    modifier =
+                        Modifier
+                            .widthIn(max = contentMaxWidth)
+                            .fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = "GO",
+                            text = "Confirm action",
+                            color = fg,
                             fontWeight = FontWeight.Bold
                         )
+                        Text(
+                            text = "Did you mean ${pendingConfirmation.target}?",
+                            color = fg,
+                            fontSize = 14.sp
+                        )
                     }
-                },
-                shape = RoundedCornerShape(18.dp)
-            )
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier =
+                    Modifier
+                        .widthIn(max = contentMaxWidth)
+                        .fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = card)
+            ) {
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    chatMessages.forEach { message ->
+                        val isUser = message.role == ChatRole.USER
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement =
+                                if (isUser) Arrangement.End else Arrangement.Start
+                        ) {
+                            Column(
+                                modifier =
+                                    Modifier
+                                        .widthIn(max = 300.dp)
+                                        .background(
+                                            color =
+                                                if (isUser) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    MaterialTheme.colorScheme.surfaceVariant
+                                                },
+                                            shape = RoundedCornerShape(
+                                                topStart = if (isUser) 18.dp else 8.dp,
+                                                topEnd = if (isUser) 8.dp else 18.dp,
+                                                bottomStart = 18.dp,
+                                                bottomEnd = 18.dp
+                                            )
+                                        )
+                                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                            ) {
+                                Text(
+                                    text = message.text,
+                                    color = if (isUser) Color.White else fg,
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp
+                                )
+
+                                if (!isUser && message.text.isNotBlank()) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        TextButton(
+                                            onClick = { onCopyMessage(message.text) }
+                                        ) {
+                                            Text("Copy")
+                                        }
+                                        TextButton(
+                                            onClick = onRegenerateLast
+                                        ) {
+                                            Text("Regenerate")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Row(
+                modifier =
+                    Modifier
+                        .widthIn(max = contentMaxWidth)
+                        .fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = chatInput,
+                    onValueChange = onChatInputChange,
+                    modifier = Modifier.weight(1f),
+                    placeholder = {
+                        Text("Message AURA...")
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(18.dp)
+                )
+
+                Button(
+                    onClick = onSendChat,
+                    shape = RoundedCornerShape(18.dp),
+                    enabled = chatInput.isNotBlank()
+                ) {
+                    Text("Send")
+                }
+            }
         }
 
         item {
@@ -913,29 +2118,6 @@ private fun HomeScreen(
                 )
             }
         }
-
-        item {
-            SectionTitle(
-                text = "Recent commands",
-                fg = fg,
-                modifier =
-                    Modifier
-                        .widthIn(max = contentMaxWidth)
-                        .fillMaxWidth()
-            )
-        }
-
-        items(recent.size) { index ->
-            RecentCommandCard(
-                command = recent[index],
-                card = card,
-                fg = fg,
-                modifier =
-                    Modifier
-                        .widthIn(max = contentMaxWidth)
-                        .fillMaxWidth()
-            )
-        }
     }
 }
 
@@ -951,6 +2133,7 @@ private fun ReviewerScreen(
     documentError: String?,
     reviewingDocument: Boolean,
     onPickDocument: () -> Unit,
+    onSave: (DocumentSummary) -> Unit,
     onClear: () -> Unit
 ) {
     LazyColumn(
@@ -989,15 +2172,16 @@ private fun ReviewerScreen(
                         .widthIn(max = contentMaxWidth)
                         .fillMaxWidth(),
                 onPickDocument = onPickDocument,
+                onSave = onSave,
                 onClear = onClear
             )
         }
 
         item {
             InfoCard(
-                title = "Readable files",
+                title = "Supported files",
                 body =
-                    "Best for TXT, Markdown, JSON, XML, and exported notes. PDF and DOCX need stronger extraction later.",
+                    "Works with TXT, Markdown, JSON, XML, DOCX, and text-based PDFs. Image-only PDFs need OCR later.",
                 card = card,
                 fg = fg,
                 modifier =
@@ -1030,7 +2214,18 @@ private fun SettingsScreen(
     onOpenOverlaySettings: () -> Unit,
     onOpenSystemSettings: () -> Unit,
     onOpenFiles: () -> Unit,
-    onOpenDownloads: () -> Unit
+    onOpenDownloads: () -> Unit,
+    onBrightnessLow: () -> Unit,
+    onBrightnessMedium: () -> Unit,
+    onBrightnessHigh: () -> Unit,
+    onVolumeLow: () -> Unit,
+    onVolumeMedium: () -> Unit,
+    onVolumeHigh: () -> Unit,
+    onSetMorningAlarm: () -> Unit,
+    onOpenWifi: () -> Unit,
+    onOpenBluetooth: () -> Unit,
+    onOpenDisplay: () -> Unit,
+    onOpenBattery: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1077,6 +2272,104 @@ private fun SettingsScreen(
 
         item {
             SectionTitle(
+                text = "Brightness",
+                fg = fg,
+                modifier =
+                    Modifier
+                        .widthIn(max = contentMaxWidth)
+                        .fillMaxWidth()
+            )
+        }
+
+        item {
+            Row(
+                modifier =
+                    Modifier
+                        .widthIn(max = contentMaxWidth)
+                        .fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.spacedBy(10.dp)
+            ) {
+                Quick(
+                    title = "Low",
+                    card = card,
+                    fg = fg,
+                    height = actionHeight
+                ) {
+                    onBrightnessLow()
+                }
+
+                Quick(
+                    title = "Medium",
+                    card = card,
+                    fg = fg,
+                    height = actionHeight
+                ) {
+                    onBrightnessMedium()
+                }
+
+                Quick(
+                    title = "High",
+                    card = card,
+                    fg = fg,
+                    height = actionHeight
+                ) {
+                    onBrightnessHigh()
+                }
+            }
+        }
+
+        item {
+            SectionTitle(
+                text = "Media volume",
+                fg = fg,
+                modifier =
+                    Modifier
+                        .widthIn(max = contentMaxWidth)
+                        .fillMaxWidth()
+            )
+        }
+
+        item {
+            Row(
+                modifier =
+                    Modifier
+                        .widthIn(max = contentMaxWidth)
+                        .fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.spacedBy(10.dp)
+            ) {
+                Quick(
+                    title = "Low",
+                    card = card,
+                    fg = fg,
+                    height = actionHeight
+                ) {
+                    onVolumeLow()
+                }
+
+                Quick(
+                    title = "Medium",
+                    card = card,
+                    fg = fg,
+                    height = actionHeight
+                ) {
+                    onVolumeMedium()
+                }
+
+                Quick(
+                    title = "High",
+                    card = card,
+                    fg = fg,
+                    height = actionHeight
+                ) {
+                    onVolumeHigh()
+                }
+            }
+        }
+
+        item {
+            SectionTitle(
                 text = "System shortcuts",
                 fg = fg,
                 modifier =
@@ -1096,6 +2389,62 @@ private fun SettingsScreen(
                     Arrangement.spacedBy(10.dp)
             ) {
                 Quick(
+                    title = "Alarm",
+                    card = card,
+                    fg = fg,
+                    height = actionHeight
+                ) {
+                    onSetMorningAlarm()
+                }
+
+                Quick(
+                    title = "Wi-Fi",
+                    card = card,
+                    fg = fg,
+                    height = actionHeight
+                ) {
+                    onOpenWifi()
+                }
+
+                Quick(
+                    title = "Bluetooth",
+                    card = card,
+                    fg = fg,
+                    height = actionHeight
+                ) {
+                    onOpenBluetooth()
+                }
+            }
+        }
+
+        item {
+            Row(
+                modifier =
+                    Modifier
+                        .widthIn(max = contentMaxWidth)
+                        .fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.spacedBy(10.dp)
+            ) {
+                Quick(
+                    title = "Display",
+                    card = card,
+                    fg = fg,
+                    height = actionHeight
+                ) {
+                    onOpenDisplay()
+                }
+
+                Quick(
+                    title = "Battery",
+                    card = card,
+                    fg = fg,
+                    height = actionHeight
+                ) {
+                    onOpenBattery()
+                }
+
+                Quick(
                     title = "Files",
                     card = card,
                     fg = fg,
@@ -1103,7 +2452,18 @@ private fun SettingsScreen(
                 ) {
                     onOpenFiles()
                 }
+            }
+        }
 
+        item {
+            Row(
+                modifier =
+                    Modifier
+                        .widthIn(max = contentMaxWidth)
+                        .fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.spacedBy(10.dp)
+            ) {
                 Quick(
                     title = "Downloads",
                     card = card,
@@ -1111,6 +2471,15 @@ private fun SettingsScreen(
                     height = actionHeight
                 ) {
                     onOpenDownloads()
+                }
+
+                Quick(
+                    title = "Settings",
+                    card = card,
+                    fg = fg,
+                    height = actionHeight
+                ) {
+                    onOpenSystemSettings()
                 }
             }
         }
@@ -1415,6 +2784,7 @@ fun DocumentReviewPanel(
     reviewing: Boolean,
     modifier: Modifier = Modifier,
     onPickDocument: () -> Unit,
+    onSave: (DocumentSummary) -> Unit,
     onClear: () -> Unit
 ) {
     Card(
@@ -1532,14 +2902,33 @@ fun DocumentReviewPanel(
                     )
                 }
 
-                TextButton(
-                    onClick = onClear,
-                    contentPadding = PaddingValues(0.dp)
+                Row(
+                    horizontalArrangement =
+                        Arrangement.spacedBy(12.dp),
+                    verticalAlignment =
+                        Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Clear review",
-                        maxLines = 1
-                    )
+                    Button(
+                        onClick = {
+                            onSave(summary)
+                        },
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text(
+                            text = "Save",
+                            maxLines = 1
+                        )
+                    }
+
+                    TextButton(
+                        onClick = onClear,
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text(
+                            text = "Clear review",
+                            maxLines = 1
+                        )
+                    }
                 }
             }
         }
@@ -1695,6 +3084,17 @@ private fun SettingsStatusCard(
                 label = "Overlay permission",
                 value =
                     if (Settings.canDrawOverlays(context)) {
+                        "Granted"
+                    } else {
+                        "Not granted"
+                    },
+                fg = fg
+            )
+
+            StatusLine(
+                label = "System settings permission",
+                value =
+                    if (Settings.System.canWrite(context)) {
                         "Granted"
                     } else {
                         "Not granted"
@@ -1986,38 +3386,6 @@ private fun getDocumentDisplayName(
             it.isNotBlank()
         }
         ?: "Document"
-}
-
-private fun readDocumentText(
-    context: Context,
-    uri: Uri,
-    maxChars: Int = 250_000
-): String {
-    val builder = StringBuilder()
-
-    context.contentResolver
-        .openInputStream(uri)
-        ?.bufferedReader()
-        ?.use { reader ->
-            val buffer = CharArray(4096)
-
-            while (builder.length < maxChars) {
-                val read = reader.read(buffer)
-
-                if (read <= 0) {
-                    break
-                }
-
-                val remaining = maxChars - builder.length
-                builder.append(
-                    buffer,
-                    0,
-                    minOf(read, remaining)
-                )
-            }
-        }
-
-    return builder.toString()
 }
 
 private fun startActivitySafely(

@@ -5,6 +5,10 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class DocumentSummarizerTest {
     @Test
@@ -43,5 +47,68 @@ class DocumentSummarizerTest {
             )
 
         assertNull(summary)
+    }
+
+    @Test
+    fun extractsDocxDocumentText() {
+        val docxBytes =
+            ByteArrayOutputStream()
+                .also { output ->
+                    ZipOutputStream(output).use { zip ->
+                        zip.putNextEntry(
+                            ZipEntry("word/document.xml")
+                        )
+                        zip.write(
+                            """
+                            <?xml version="1.0" encoding="UTF-8"?>
+                            <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                                <w:body>
+                                    <w:p>
+                                        <w:r><w:t>AURA can summarize DOCX notes.</w:t></w:r>
+                                    </w:p>
+                                    <w:p>
+                                        <w:r><w:t>Reviewer exports should stay readable.</w:t></w:r>
+                                    </w:p>
+                                </w:body>
+                            </w:document>
+                            """.trimIndent()
+                                .toByteArray()
+                        )
+                        zip.closeEntry()
+                    }
+                }
+                .toByteArray()
+
+        val text =
+            extractDocxText(
+                inputStream = ByteArrayInputStream(docxBytes)
+            )
+
+        assertTrue(text.contains("AURA can summarize DOCX notes."))
+        assertTrue(text.contains("Reviewer exports should stay readable."))
+    }
+
+    @Test
+    fun formatsReviewerMarkdown() {
+        val summary =
+            DocumentSummary(
+                title = "Study Notes.docx",
+                wordCount = 220,
+                readingTimeMinutes = 1,
+                keyPoints = listOf("Focus on the main idea."),
+                reviewerNotes = listOf("Review the evidence."),
+                actionItems = listOf("Submit the reviewer."),
+                keywords = listOf("study", "reviewer")
+            )
+
+        val markdown = formatReviewerMarkdown(summary)
+
+        assertTrue(markdown.contains("# Study Notes.docx"))
+        assertTrue(markdown.contains("## Key Points"))
+        assertTrue(markdown.contains("- Focus on the main idea."))
+        assertEquals(
+            "Study Notes Reviewer.md",
+            suggestedReviewerFileName(summary.title)
+        )
     }
 }
