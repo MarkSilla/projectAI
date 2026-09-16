@@ -351,14 +351,13 @@ private fun buildActionDetails(
     sentences: List<String>,
     limit: Int
 ): List<ReviewAction> {
-    return sentences
+    val actions = sentences
         .filter { sentence ->
             actionSignals.any { signal ->
                 sentence.contains(signal, ignoreCase = true)
             }
         }
         .distinctBy { normalizeForComparison(it) }
-        .take(limit)
         .map { sentence ->
             val owner =
                 Regex(
@@ -388,6 +387,20 @@ private fun buildActionDetails(
                 priority = priority
             )
         }
+
+    return actions
+        .sortedWith(
+            compareByDescending<ReviewAction> { it.deadline != null }
+                .thenByDescending { it.owner != null }
+                .thenByDescending {
+                    when (it.priority) {
+                        "High" -> 3
+                        "Medium" -> 2
+                        else -> 1
+                    }
+                }
+        )
+        .take(limit)
 }
 
 /* =========================================================
@@ -1162,11 +1175,34 @@ private fun extractDeadline(sentence: String): String? {
             "(?:by|before|on|deadline(?: is|:)?)\\s+(next\\s+(?:week|month|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday))"
         )
 
-    return patterns
+    val contextualMatch =
+        patterns
         .asSequence()
         .map { Regex(it, RegexOption.IGNORE_CASE).find(sentence) }
         .filterNotNull()
         .mapNotNull { it.groupValues.getOrNull(1)?.trim() }
+        .firstOrNull()
+
+    if (contextualMatch != null) {
+        return contextualMatch
+    }
+
+    val directPatterns =
+        listOf(
+            "(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)(?:\\s+morning|\\s+afternoon|\\s+evening)?",
+            "(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{1,2}(?:,?\\s+\\d{4})?",
+            "\\d{1,2}[/-]\\d{1,2}(?:[/-]\\d{2,4})?",
+            "next\\s+(?:week|month|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)"
+        )
+
+    return directPatterns
+        .asSequence()
+        .mapNotNull { pattern ->
+            Regex(pattern, RegexOption.IGNORE_CASE)
+                .find(sentence)
+                ?.value
+                ?.trim()
+        }
         .firstOrNull()
 }
 
