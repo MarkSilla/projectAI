@@ -27,11 +27,17 @@ class AuraService : Service() {
 
     companion object {
         const val ACTION_START = "com.marksilla.auraagent.action.START_AURA"
+        const val ACTION_PAUSE = "com.marksilla.auraagent.action.PAUSE_AURA"
+        const val ACTION_RESUME = "com.marksilla.auraagent.action.RESUME_AURA"
         const val ACTION_STOP = "com.marksilla.auraagent.action.STOP_AURA"
 
         private const val NOTIFICATION_CHANNEL_ID = "aura_active"
         private const val NOTIFICATION_CHANNEL_NAME = "AURA voice activation"
         private const val NOTIFICATION_ID = 1001
+        private const val REQUEST_OPEN_APP = 2001
+        private const val REQUEST_PAUSE = 2002
+        private const val REQUEST_RESUME = 2003
+        private const val REQUEST_STOP = 2004
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -46,6 +52,7 @@ class AuraService : Service() {
     private var recognizer: SpeechRecognizer? = null
     private var currentMode = ListeningMode.WAKE_MODE
     private var isActive = false
+    private var isPaused = false
     private var lastRecognizerStartAt = 0L
     private var rapidRestartCount = 0
 
@@ -60,19 +67,37 @@ class AuraService : Service() {
         flags: Int,
         startId: Int
     ): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopAura()
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                stopAura()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+
+            ACTION_PAUSE -> {
+                pauseAura()
+                return START_STICKY
+            }
+
+            ACTION_RESUME -> {
+                startForeground(
+                    NOTIFICATION_ID,
+                    buildNotification()
+                )
+                resumeAura()
+                return START_STICKY
+            }
+
+            else -> {
+                startForeground(
+                    NOTIFICATION_ID,
+                    buildNotification()
+                )
+
+                startAura()
+                return START_STICKY
+            }
         }
-
-        startForeground(
-            NOTIFICATION_ID,
-            buildNotification()
-        )
-
-        startAura()
-        return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -86,12 +111,16 @@ class AuraService : Service() {
         if (isActive) {
             publishState(
                 status =
-                    if (currentMode == ListeningMode.COMMAND_MODE) {
+                    if (isPaused) {
+                        "AURA paused"
+                    } else if (currentMode == ListeningMode.COMMAND_MODE) {
                         "AURA is listening..."
                     } else {
                         "Waiting for \"Hey AURA\""
                     },
-                listening = currentMode == ListeningMode.COMMAND_MODE
+                listening =
+                    !isPaused &&
+                        currentMode == ListeningMode.COMMAND_MODE
             )
             return
         }
@@ -121,11 +150,72 @@ class AuraService : Service() {
         }
 
         isActive = true
+        isPaused = false
+        startWakeMode()
+    }
+
+    private fun pauseAura() {
+        if (!isActive) {
+            publishState(
+                status = "AURA stopped",
+                listening = false,
+                active = false,
+                paused = false
+            )
+            return
+        }
+
+        if (isPaused) {
+            publishState(
+                status = "AURA paused",
+                listening = false,
+                paused = true
+            )
+            return
+        }
+
+        isPaused = true
+        handler.removeCallbacks(wakeRestartRunnable)
+        handler.removeCallbacks(commandStartRunnable)
+        overlay.hide()
+        destroyRecognizer()
+        publishState(
+            status = "AURA paused",
+            listening = false,
+            paused = true
+        )
+    }
+
+    private fun resumeAura() {
+        if (!isActive) {
+            startAura()
+            return
+        }
+
+        if (!isPaused) {
+            publishState(
+                status =
+                    if (currentMode == ListeningMode.COMMAND_MODE) {
+                        "AURA is listening..."
+                    } else {
+                        "Waiting for \"Hey AURA\""
+                    },
+                listening = currentMode == ListeningMode.COMMAND_MODE
+            )
+            return
+        }
+
+        isPaused = false
+        publishState(
+            status = "Resuming AURA...",
+            listening = false
+        )
         startWakeMode()
     }
 
     private fun stopAura() {
         isActive = false
+        isPaused = false
         handler.removeCallbacks(wakeRestartRunnable)
         handler.removeCallbacks(commandStartRunnable)
         overlay.hide()
@@ -133,7 +223,8 @@ class AuraService : Service() {
         publishState(
             status = "AURA stopped",
             listening = false,
-            active = false
+            active = false,
+            paused = false
         )
 
         try {
@@ -144,7 +235,7 @@ class AuraService : Service() {
     }
 
     private fun startWakeMode() {
-        if (!isActive) {
+        if (!isActive || isPaused) {
             return
         }
 
@@ -160,7 +251,11 @@ class AuraService : Service() {
     private fun enterCommandMode(
         inlineCommand: String? = null
     ) {
-        if (!isActive || currentMode != ListeningMode.WAKE_MODE) {
+        if (
+            !isActive ||
+            isPaused ||
+            currentMode != ListeningMode.WAKE_MODE
+        ) {
             return
         }
 
@@ -189,7 +284,7 @@ class AuraService : Service() {
     }
 
     private fun startRecognizer(mode: ListeningMode) {
-        if (!isActive) {
+        if (!isActive || isPaused) {
             return
         }
 
@@ -265,6 +360,10 @@ class AuraService : Service() {
         results: List<String>,
         allowInlineCommand: Boolean = false
     ) {
+        if (isPaused) {
+            return
+        }
+
         if (currentMode != ListeningMode.WAKE_MODE) {
             return
         }
@@ -293,6 +392,10 @@ class AuraService : Service() {
     }
 
     private fun handleCommandResults(results: List<String>) {
+        if (isPaused) {
+            return
+        }
+
         if (currentMode != ListeningMode.COMMAND_MODE) {
             return
         }
@@ -358,6 +461,10 @@ class AuraService : Service() {
     private fun handleRecognizerFailure(mode: ListeningMode) {
         destroyRecognizer()
 
+        if (isPaused) {
+            return
+        }
+
         if (mode == ListeningMode.WAKE_MODE) {
             publishState(
                 status = "Restarting wake listener",
@@ -375,7 +482,7 @@ class AuraService : Service() {
     }
 
     private fun scheduleWakeRestart(delayMillis: Long) {
-        if (!isActive) {
+        if (!isActive || isPaused) {
             return
         }
 
@@ -429,13 +536,15 @@ class AuraService : Service() {
     private fun publishState(
         status: String,
         listening: Boolean,
-        active: Boolean = isActive
+        active: Boolean = isActive,
+        paused: Boolean = isPaused
     ) {
         AuraServiceState.publish(
             context = this,
             active = active,
             status = status,
             listening = listening,
+            paused = paused,
             mode = currentMode.name
         )
 
@@ -449,7 +558,12 @@ class AuraService : Service() {
     }
 
     private fun buildNotification(
-        text: String = "Say \"Hey AURA\" to activate"
+        text: String =
+            if (isPaused) {
+                "AURA is paused"
+            } else {
+                "Say \"Hey AURA\" to activate"
+            }
     ): Notification {
         val contentIntent =
             Intent(this, MainActivity::class.java).apply {
@@ -461,23 +575,81 @@ class AuraService : Service() {
         val pendingIntent =
             PendingIntent.getActivity(
                 this,
-                0,
+                REQUEST_OPEN_APP,
                 contentIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or
                     PendingIntent.FLAG_IMMUTABLE
             )
+
+        val pauseIntent =
+            PendingIntent.getService(
+                this,
+                REQUEST_PAUSE,
+                Intent(this, AuraService::class.java).apply {
+                    action = ACTION_PAUSE
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or
+                    PendingIntent.FLAG_IMMUTABLE
+            )
+
+        val resumeIntent =
+            PendingIntent.getService(
+                this,
+                REQUEST_RESUME,
+                Intent(this, AuraService::class.java).apply {
+                    action = ACTION_RESUME
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or
+                    PendingIntent.FLAG_IMMUTABLE
+            )
+
+        val stopIntent =
+            PendingIntent.getService(
+                this,
+                REQUEST_STOP,
+                Intent(this, AuraService::class.java).apply {
+                    action = ACTION_STOP
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or
+                    PendingIntent.FLAG_IMMUTABLE
+            )
+
+        val title =
+            if (isPaused) {
+                "AURA is paused"
+            } else {
+                "AURA is active"
+            }
 
         return Notification.Builder(
             this,
             NOTIFICATION_CHANNEL_ID
         )
             .setSmallIcon(R.drawable.aura_icon)
-            .setContentTitle("AURA is active")
+            .setContentTitle(title)
             .setContentText(text)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_SERVICE)
+            .addAction(
+                R.drawable.aura_icon,
+                if (isPaused) {
+                    "Resume"
+                } else {
+                    "Pause"
+                },
+                if (isPaused) {
+                    resumeIntent
+                } else {
+                    pauseIntent
+                }
+            )
+            .addAction(
+                R.drawable.aura_icon,
+                "Stop",
+                stopIntent
+            )
             .build()
     }
 
@@ -493,7 +665,7 @@ class AuraService : Service() {
         private val listenerMode: ListeningMode
     ) : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
-            if (!isActive || listenerMode != currentMode) {
+            if (!isActive || isPaused || listenerMode != currentMode) {
                 return
             }
 
@@ -513,7 +685,7 @@ class AuraService : Service() {
         }
 
         override fun onBeginningOfSpeech() {
-            if (!isActive || listenerMode != currentMode) {
+            if (!isActive || isPaused || listenerMode != currentMode) {
                 return
             }
 
@@ -532,7 +704,7 @@ class AuraService : Service() {
         override fun onEndOfSpeech() = Unit
 
         override fun onError(error: Int) {
-            if (!isActive || listenerMode != currentMode) {
+            if (!isActive || isPaused || listenerMode != currentMode) {
                 return
             }
 
@@ -550,7 +722,7 @@ class AuraService : Service() {
         }
 
         override fun onResults(results: Bundle?) {
-            if (!isActive || listenerMode != currentMode) {
+            if (!isActive || isPaused || listenerMode != currentMode) {
                 return
             }
 
@@ -580,6 +752,7 @@ class AuraService : Service() {
         override fun onPartialResults(partialResults: Bundle?) {
             if (
                 !isActive ||
+                isPaused ||
                 listenerMode != ListeningMode.WAKE_MODE ||
                 currentMode != ListeningMode.WAKE_MODE
             ) {

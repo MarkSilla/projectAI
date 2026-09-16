@@ -141,4 +141,13 @@ class WakeWordDetectorTest {
             findApp(apps, "you tube")?.name
         )
     }
+
+    @Test
+    fun detectsDocumentReviewCommands() {
+        assertTrue(isDocumentReviewCommand("Summarize document"))
+        assertTrue(isDocumentReviewCommand("Can you review this document?"))
+        assertTrue(isDocumentReviewCommand("Hey AURA make a reviewer"))
+        assertTrue(isDocumentReviewCommand("Paki summarize ng document"))
+        assertFalse(isDocumentReviewCommand("Open Facebook"))
+    }
 }

@@ -245,6 +245,35 @@ fun extractOpenCommand(command: String): String? {
     return cleanAppName(text)
 }
 
+fun isDocumentReviewCommand(command: String): Boolean {
+    val text =
+        command
+            .lowercase()
+            .replace(Regex("[^a-z0-9 ]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+    if (text.isBlank()) {
+        return false
+    }
+
+    val withoutAssistant =
+        listOf(
+            "hey aura ",
+            "hi aura ",
+            "hello aura ",
+            "aura "
+        ).firstOrNull {
+            text.startsWith(it)
+        }?.let {
+            text.removePrefix(it).trim()
+        } ?: text
+
+    return documentReviewPhrases.any {
+        withoutAssistant.contains(it)
+    }
+}
+
 /**
  * Cleans the application name before matching it.
  */
@@ -279,3 +308,29 @@ private fun cleanAppName(appName: String): String {
 
     return result.trim()
 }
+
+private val documentReviewPhrases =
+    listOf(
+        "summarize a document",
+        "summarize document",
+        "summarize the document",
+        "summarize this document",
+        "summarize my document",
+        "review a document",
+        "review document",
+        "review the document",
+        "review this document",
+        "review my document",
+        "make reviewer",
+        "make a reviewer",
+        "create reviewer",
+        "create a reviewer",
+        "gumawa ng reviewer",
+        "gawa ng reviewer",
+        "mag summarize ng document",
+        "magpa summarize ng document",
+        "pa summarize ng document",
+        "paki summarize ng document",
+        "ibuod ang document",
+        "ibuod yung document"
+    )

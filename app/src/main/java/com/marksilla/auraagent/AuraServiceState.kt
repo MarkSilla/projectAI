@@ -9,11 +9,13 @@ object AuraServiceState {
     const val EXTRA_STATUS = "extra_status"
     const val EXTRA_LISTENING = "extra_listening"
     const val EXTRA_MODE = "extra_mode"
+    const val EXTRA_PAUSED = "extra_paused"
 
     private const val PREFS_NAME = "aura_service_state"
     private const val KEY_ACTIVE = "active"
     private const val KEY_STATUS = "status"
     private const val KEY_LISTENING = "listening"
+    private const val KEY_PAUSED = "paused"
     private const val DEFAULT_STATUS = "Ready"
 
     fun isActive(context: Context): Boolean =
@@ -34,11 +36,18 @@ object AuraServiceState {
             false
         )
 
+    fun isPaused(context: Context): Boolean =
+        prefs(context).getBoolean(
+            KEY_PAUSED,
+            false
+        )
+
     fun publish(
         context: Context,
         active: Boolean,
         status: String,
         listening: Boolean,
+        paused: Boolean,
         mode: String
     ) {
         prefs(context)
@@ -46,6 +55,7 @@ object AuraServiceState {
             .putBoolean(KEY_ACTIVE, active)
             .putString(KEY_STATUS, status)
             .putBoolean(KEY_LISTENING, listening)
+            .putBoolean(KEY_PAUSED, paused)
             .apply()
 
         context.sendBroadcast(
@@ -54,6 +64,7 @@ object AuraServiceState {
                 putExtra(EXTRA_ACTIVE, active)
                 putExtra(EXTRA_STATUS, status)
                 putExtra(EXTRA_LISTENING, listening)
+                putExtra(EXTRA_PAUSED, paused)
                 putExtra(EXTRA_MODE, mode)
             }
         )
