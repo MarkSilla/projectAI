@@ -1441,7 +1441,7 @@ private fun hasReadableText(
 
     return (
         letters >= 80 &&
-            words >= 25 &&
+            words >= 20 &&
             controls < 12
         ) ||
         (
