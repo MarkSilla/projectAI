@@ -146,7 +146,7 @@ fun extractDocxText(
         .take(maxChars)
 }
 
-fun formatReviewerMarkdown(
+internal fun formatReviewerMarkdown(
     summary: DocumentSummary,
     webResults: List<WebSearchResult> = emptyList()
 ): String =

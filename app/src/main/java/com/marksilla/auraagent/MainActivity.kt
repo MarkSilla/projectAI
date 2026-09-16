@@ -2,23 +2,6 @@ package com.marksilla.auraagent
 
 import android.Manifest
 import android.content.BroadcastReceiver
-            if (reviewing && documentProgress != null) {
-                Text(
-                    text = documentProgress,
-                    color = fg.copy(alpha = 0.78f),
-                    fontSize = 13.sp
-                )
-                LinearProgressIndicator(
-                    progress = { documentProgressPercent.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedButton(
-                    onClick = onCancelDocument,
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Cancel scan")
-                }
-            }
 
 import android.content.Context
 import android.content.Intent
@@ -4296,7 +4279,7 @@ fun OrbCard(
 }
 
 @Composable
-fun DocumentReviewPanel(
+internal fun DocumentReviewPanel(
     card: Color,
     fg: Color,
     documentName: String?,
@@ -4420,6 +4403,24 @@ fun DocumentReviewPanel(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+                }
+            }
+
+            if (reviewing && documentProgress != null) {
+                Text(
+                    text = documentProgress,
+                    color = fg.copy(alpha = 0.78f),
+                    fontSize = 13.sp
+                )
+                LinearProgressIndicator(
+                    progress = { documentProgressPercent.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedButton(
+                    onClick = onCancelDocument,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Cancel scan")
                 }
             }
 
