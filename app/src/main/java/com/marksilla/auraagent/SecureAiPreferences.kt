@@ -34,21 +34,19 @@ class SecureAiPreferences(
         }.getOrNull()
     }
 
-    fun saveApiKey(apiKey: String) {
+    fun saveApiKey(apiKey: String): Boolean {
         val trimmed = apiKey.trim()
         if (trimmed.isBlank()) {
             clearApiKey()
-            return
+            return false
         }
 
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, getSecretKey())
-        val encrypted = cipher.doFinal(trimmed.toByteArray(Charsets.UTF_8))
-
-        preferences.edit()
-            .putString(KEY_ENCRYPTED, Base64.encodeToString(encrypted, Base64.NO_WRAP))
-            .putString(KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-            .apply()
+        return runCatching {
+            saveEncrypted(trimmed)
+        }.recoverCatching {
+            deleteSecretKey()
+            saveEncrypted(trimmed)
+        }.isSuccess
     }
 
     fun clearApiKey() {
@@ -77,6 +75,28 @@ class SecureAiPreferences(
                 .build()
         )
         return generator.generateKey()
+    }
+
+    private fun saveEncrypted(value: String) {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, getSecretKey())
+        val encrypted = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+
+        check(
+            preferences.edit()
+                .putString(KEY_ENCRYPTED, Base64.encodeToString(encrypted, Base64.NO_WRAP))
+                .putString(KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+                .commit()
+        )
+    }
+
+    private fun deleteSecretKey() {
+        KeyStore.getInstance(ANDROID_KEYSTORE).apply {
+            load(null)
+            if (containsAlias(KEY_ALIAS)) {
+                deleteEntry(KEY_ALIAS)
+            }
+        }
     }
 
     companion object {

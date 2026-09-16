@@ -1708,6 +1708,11 @@ fun AuraApp(
                 } else {
                     null
                 }
+            if (aiMode == AiMode.ONLINE && onlineReply == null) {
+                status =
+                    "Online AI unavailable; using Offline mode" +
+                        (onlineAiClient.lastError?.let { " ($it)" } ?: "")
+            }
             processChatInput(
                 input = request,
                 onlineReply = onlineReply
@@ -2257,8 +2262,8 @@ fun AuraApp(
                                 installedApps = installedApps,
                                 onlineApiKeyConfigured = onlineApiKeyConfigured,
                                 onSaveOnlineApiKey = { apiKey ->
-                                    SecureAiPreferences(context).saveApiKey(apiKey)
-                                    onlineApiKeyConfigured = apiKey.isNotBlank()
+                                    onlineApiKeyConfigured =
+                                        SecureAiPreferences(context).saveApiKey(apiKey)
                                     if (!onlineApiKeyConfigured) {
                                         aiMode = AiMode.OFFLINE
                                     }
@@ -2268,6 +2273,7 @@ fun AuraApp(
                                         } else {
                                             "Online AI key cleared"
                                         }
+                                    onlineApiKeyConfigured
                                 },
                                 onClearOnlineApiKey = {
                                     SecureAiPreferences(context).clearApiKey()
@@ -3318,7 +3324,7 @@ private fun SettingsScreen(
     status: String,
     installedApps: List<InstalledApp>,
     onlineApiKeyConfigured: Boolean,
-    onSaveOnlineApiKey: (String) -> Unit,
+    onSaveOnlineApiKey: (String) -> Boolean,
     onClearOnlineApiKey: () -> Unit,
     onToggleDark: () -> Unit,
     onRefreshApps: () -> Unit,
@@ -4225,12 +4231,15 @@ private fun OnlineAiSettingsCard(
     card: Color,
     fg: Color,
     configured: Boolean,
-    onSave: (String) -> Unit,
+    onSave: (String) -> Boolean,
     onClear: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var apiKey by remember {
         mutableStateOf("")
+    }
+    var saveStatus by remember {
+        mutableStateOf<String?>(null)
     }
 
     Card(
@@ -4259,6 +4268,13 @@ private fun OnlineAiSettingsCard(
                 fontSize = 12.sp,
                 lineHeight = 17.sp
             )
+            if (saveStatus != null) {
+                Text(
+                    text = saveStatus.orEmpty(),
+                    color = fg.copy(alpha = 0.78f),
+                    fontSize = 12.sp
+                )
+            }
             OutlinedTextField(
                 value = apiKey,
                 onValueChange = { apiKey = it },
@@ -4275,7 +4291,13 @@ private fun OnlineAiSettingsCard(
             ) {
                 Button(
                     onClick = {
-                        onSave(apiKey)
+                        val saved = onSave(apiKey)
+                        saveStatus =
+                            if (saved) {
+                                "Saved securely. The key is hidden after saving."
+                            } else {
+                                "Could not save the key. Try again."
+                            }
                         apiKey = ""
                     },
                     enabled = apiKey.isNotBlank(),

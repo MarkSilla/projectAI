@@ -15,14 +15,21 @@ class OnlineAiClient(
     val isConfigured: Boolean
         get() = securePreferences.getApiKey().orEmpty().isNotBlank()
 
+    @Volatile
+    var lastError: String? = null
+        private set
+
     fun complete(
         prompt: String,
         recentContext: List<String> = emptyList()
     ): String? {
         val apiKey = securePreferences.getApiKey().orEmpty()
         if (apiKey.isBlank()) {
+            lastError = "No API key is configured"
             return null
         }
+
+        lastError = null
 
         val endpoint =
             preferences.getString(KEY_ENDPOINT, DEFAULT_ENDPOINT)
@@ -75,6 +82,18 @@ class OnlineAiClient(
             }
 
             if (connection.responseCode !in 200..299) {
+                val errorBody =
+                    connection.errorStream
+                        ?.bufferedReader()
+                        ?.use { it.readText() }
+                        .orEmpty()
+                lastError =
+                    "HTTP ${connection.responseCode}" +
+                        if (errorBody.isBlank()) {
+                            ""
+                        } else {
+                            ": ${errorBody.take(180)}"
+                        }
                 null
             } else {
                 val response = connection.inputStream.bufferedReader().use { it.readText() }
@@ -87,6 +106,7 @@ class OnlineAiClient(
                     ?.takeIf { it.isNotBlank() }
             }
         } catch (_: Exception) {
+            lastError = "Could not reach the AI endpoint"
             null
         } finally {
             connection.disconnect()
