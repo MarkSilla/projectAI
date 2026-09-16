@@ -80,6 +80,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -776,6 +777,9 @@ fun AuraApp(
         remember {
             OnlineAiClient(context.applicationContext)
         }
+    var onlineApiKeyConfigured by remember {
+        mutableStateOf(onlineAiClient.isConfigured)
+    }
     val commandUnderstandingEngine =
         remember {
             AuraCommandUnderstanding(
@@ -2251,6 +2255,26 @@ fun AuraApp(
                                 auraListening = auraListening,
                                 status = status,
                                 installedApps = installedApps,
+                                onlineApiKeyConfigured = onlineApiKeyConfigured,
+                                onSaveOnlineApiKey = { apiKey ->
+                                    SecureAiPreferences(context).saveApiKey(apiKey)
+                                    onlineApiKeyConfigured = apiKey.isNotBlank()
+                                    if (!onlineApiKeyConfigured) {
+                                        aiMode = AiMode.OFFLINE
+                                    }
+                                    status =
+                                        if (onlineApiKeyConfigured) {
+                                            "Online AI configured"
+                                        } else {
+                                            "Online AI key cleared"
+                                        }
+                                },
+                                onClearOnlineApiKey = {
+                                    SecureAiPreferences(context).clearApiKey()
+                                    onlineApiKeyConfigured = false
+                                    aiMode = AiMode.OFFLINE
+                                    status = "Online AI key cleared"
+                                },
                                 onToggleDark = {
                                     dark = !dark
                                 },
@@ -3293,6 +3317,9 @@ private fun SettingsScreen(
     auraListening: Boolean,
     status: String,
     installedApps: List<InstalledApp>,
+    onlineApiKeyConfigured: Boolean,
+    onSaveOnlineApiKey: (String) -> Unit,
+    onClearOnlineApiKey: () -> Unit,
     onToggleDark: () -> Unit,
     onRefreshApps: () -> Unit,
     onOpenApp: (InstalledApp) -> Unit,
@@ -3348,6 +3375,20 @@ private fun SettingsScreen(
                 onToggleDark = onToggleDark,
                 onOpenOverlaySettings = onOpenOverlaySettings,
                 onOpenSystemSettings = onOpenSystemSettings,
+                modifier =
+                    Modifier
+                        .widthIn(max = contentMaxWidth)
+                        .fillMaxWidth()
+            )
+        }
+
+        item {
+            OnlineAiSettingsCard(
+                card = card,
+                fg = fg,
+                configured = onlineApiKeyConfigured,
+                onSave = onSaveOnlineApiKey,
+                onClear = onClearOnlineApiKey,
                 modifier =
                     Modifier
                         .widthIn(max = contentMaxWidth)
@@ -4174,6 +4215,86 @@ private fun SummaryGroup(
                     fontSize = 13.sp,
                     lineHeight = 18.sp
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OnlineAiSettingsCard(
+    card: Color,
+    fg: Color,
+    configured: Boolean,
+    onSave: (String) -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var apiKey by remember {
+        mutableStateOf("")
+    }
+
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = card),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "Online AI",
+                color = fg,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp
+            )
+            Text(
+                text =
+                    if (configured) {
+                        "Configured. Your key is stored encrypted on this device."
+                    } else {
+                        "Offline mode is active. Add a provider key to enable Online mode."
+                    },
+                color = fg.copy(alpha = 0.7f),
+                fontSize = 12.sp,
+                lineHeight = 17.sp
+            )
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("API key") },
+                placeholder = { Text("Paste your replacement key here") },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        onSave(apiKey)
+                        apiKey = ""
+                    },
+                    enabled = apiKey.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Save key")
+                }
+                OutlinedButton(
+                    onClick = {
+                        onClear()
+                        apiKey = ""
+                    },
+                    enabled = configured,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Clear key")
+                }
             }
         }
     }

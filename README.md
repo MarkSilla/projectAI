@@ -32,10 +32,9 @@ AURA chat supports two modes:
 - Offline: uses the local command and conversation engine.
 - Online: uses an OpenAI-compatible chat-completions endpoint when configured, then falls back to Offline if the request fails.
 
-Online mode requires these values in the app's `aura_preferences` preferences:
+Online mode uses the in-app Settings screen. The API key is stored encrypted with Android Keystore. The optional endpoint and model values use the app's `aura_preferences` preferences:
 
-- `online_ai_api_key`
 - `online_ai_endpoint` (optional; defaults to the OpenAI-compatible endpoint)
 - `online_ai_model` (optional; defaults to `gpt-4o-mini`)
 
-The API key is intentionally not hardcoded in the source or Gradle files.
+The API key is intentionally not hardcoded in the source, Gradle files, or repository.

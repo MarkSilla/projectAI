@@ -8,17 +8,18 @@ import org.json.JSONObject
 class OnlineAiClient(
     context: Context
 ) {
+    private val securePreferences = SecureAiPreferences(context)
     private val preferences =
         context.getSharedPreferences("aura_preferences", Context.MODE_PRIVATE)
 
     val isConfigured: Boolean
-        get() = preferences.getString(KEY_API_KEY, null).orEmpty().isNotBlank()
+        get() = securePreferences.getApiKey().orEmpty().isNotBlank()
 
     fun complete(
         prompt: String,
         recentContext: List<String> = emptyList()
     ): String? {
-        val apiKey = preferences.getString(KEY_API_KEY, null).orEmpty()
+        val apiKey = securePreferences.getApiKey().orEmpty()
         if (apiKey.isBlank()) {
             return null
         }
