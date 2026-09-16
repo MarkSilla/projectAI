@@ -135,7 +135,7 @@ private data class ChatMessage(
     val text: String
 )
 
-private fun generateAssistantReply(
+internal fun generateAssistantReply(
     prompt: String,
     recentContext: List<String> = emptyList(),
     personalMemory: List<String> = emptyList(),
@@ -230,7 +230,7 @@ private data class LearnedCommandUsage(
     val count: Int
 )
 
-private data class UserProfile(
+internal data class UserProfile(
     val preferredApps: List<String> = emptyList(),
     val routineHints: List<String> = emptyList()
 )
