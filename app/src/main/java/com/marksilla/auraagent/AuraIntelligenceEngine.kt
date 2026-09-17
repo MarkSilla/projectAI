@@ -429,7 +429,7 @@ class AuraResearchEngine {
             return ConflictOutcome(hasConflict = false)
         }
 
-        val claims = evidence.flatMap { source ->
+        val claims: List<Pair<String, String>> = evidence.flatMap { source ->
             source.claims.map { claim -> source.title to claim }
         }
 
@@ -439,7 +439,7 @@ class AuraResearchEngine {
                 val left = claims[i]
                 val right = claims[j]
                 if (left.second != right.second && left.second.isNotBlank() && right.second.isNotBlank()) {
-                    conflicts += left to right
+                    conflicts.add(left to right)
                 }
             }
         }
