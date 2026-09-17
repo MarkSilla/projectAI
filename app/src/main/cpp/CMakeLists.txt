@@ -10,7 +10,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(LLAMA_CPP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp)
 
 if(NOT EXISTS ${LLAMA_CPP_DIR}/CMakeLists.txt)
-    message(FATAL_ERROR "llama.cpp source not found at ${LLAMA_CPP_DIR}. Clone the upstream project into app/src/main/cpp/llama.cpp first.")
+    find_package(Git REQUIRED)
+    message(STATUS "llama.cpp source not found at ${LLAMA_CPP_DIR}; cloning upstream project automatically")
+
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} clone --depth 1 --branch master https://github.com/ggerganov/llama.cpp.git ${LLAMA_CPP_DIR}
+        RESULT_VARIABLE LLAMA_CLONE_RESULT
+        OUTPUT_VARIABLE LLAMA_CLONE_OUTPUT
+        ERROR_VARIABLE LLAMA_CLONE_ERROR
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    if(NOT LLAMA_CLONE_RESULT EQUAL 0)
+        message(FATAL_ERROR "Failed to clone llama.cpp into ${LLAMA_CPP_DIR}. ${LLAMA_CLONE_ERROR}")
+    endif()
 endif()
 
 set(BUILD_SHARED_LIBS ON)
