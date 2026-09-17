@@ -1614,7 +1614,10 @@ fun AuraApp(
 
         val intelligence = auraIntelligenceEngine.classify(input, AuraContext(), auraMemoryEngine)
         if (intelligence.intent == AuraIntent.OPEN_APPLICATION && intelligence.confidence >= 0.80f) {
-            val resolvedInput = auraIntelligenceEngine.resolveMemoryTerms(input, auraMemoryEngine)
+            val resolvedInput = resolveLearnedCommandAliases(
+                command = input,
+                memory = auraMemoryEngine
+            )
             val data = extractOpenCommand(resolvedInput)
             if (!data.isNullOrBlank()) {
                 val app = findApp(installedApps, data)
@@ -1672,9 +1675,11 @@ fun AuraApp(
             return
         }
 
+        val rewrittenInput = resolveLearnedCommandAliases(input, auraMemoryEngine)
+
         val understanding =
             commandUnderstandingEngine.understand(
-                command = input,
+                command = rewrittenInput,
                 installedApps = installedApps
             )
 

@@ -64,4 +64,27 @@ class CommandLearningEngineTest {
         assertTrue(pattern?.normalizedPattern?.contains("{app}") == true)
         assertTrue(pattern?.normalizedPattern?.contains("facebook") == false)
     }
+
+    @Test
+    fun learnedAliasResolvesBeforeOpenCommandParsing() {
+        val memory = AuraMemoryEngine(InMemoryMemoryStore())
+        memory.learnFromExplicitInstruction("tap means open")
+
+        val rewritten = resolveLearnedCommandAliases("tap Facebook", memory)
+
+        assertEquals("open Facebook", rewritten)
+
+        val understanding = AuraCommandUnderstanding(
+            learningEngine = CommandLearningEngine(),
+            localAi = LocalCommandAi()
+        ).understand(
+            command = rewritten,
+            installedApps = listOf(
+                InstalledApp("Facebook", "com.facebook.katana")
+            )
+        )
+
+        assertEquals(AuraCommandIntent.OPEN_APP, understanding.intent)
+        assertEquals("Facebook", understanding.target)
+    }
 }

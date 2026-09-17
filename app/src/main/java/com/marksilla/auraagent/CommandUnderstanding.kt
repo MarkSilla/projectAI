@@ -32,15 +32,17 @@ const val LEARN_OPEN_APP_CONFIDENCE = 0.82f
 
 class AuraCommandUnderstanding(
     private val learningEngine: CommandLearningEngine = CommandLearningEngine(),
-    private val localAi: LocalCommandAi = LocalCommandAi()
+    private val localAi: LocalCommandAi = LocalCommandAi(),
+    private val memory: AuraMemoryEngine? = null
 ) {
     fun understand(
         command: String,
         installedApps: List<InstalledApp>
     ): CommandUnderstanding {
+        val rewrittenCommand = memory?.let { resolveLearnedCommandAliases(command, it) } ?: command
         val parserTarget =
             runCatching {
-                extractOpenCommand(command)
+                extractOpenCommand(rewrittenCommand)
             }.getOrNull()
 
         if (!parserTarget.isNullOrBlank()) {
@@ -53,7 +55,7 @@ class AuraCommandUnderstanding(
         }
 
         learningEngine.match(
-            command = command,
+            command = rewrittenCommand,
             installedApps = installedApps
         )?.let {
             return it
@@ -61,7 +63,7 @@ class AuraCommandUnderstanding(
 
         return runCatching {
             localAi.understand(
-                command = command,
+                command = rewrittenCommand,
                 installedApps = installedApps
             )
         }.getOrElse {
@@ -121,6 +123,54 @@ fun shouldConfirmOpenApp(
     understanding: CommandUnderstanding
 ): Boolean =
     decideOpenAppAction(understanding) == CommandAction.CONFIRM
+
+fun resolveLearnedCommandAliases(
+    command: String,
+    memory: AuraMemoryEngine
+): String {
+    val input = command.trim()
+    if (input.isBlank()) {
+        return input
+    }
+
+    val aliasEntries = memory
+        .searchMemory(input)
+        .filter { entry ->
+            val matchText = entry.matchText?.trim().orEmpty()
+            matchText.isNotBlank() && (
+                entry.type.contains("learned") ||
+                    entry.type.contains("application_alias") ||
+                    entry.category.contains("alias") ||
+                    entry.category.contains("learned")
+                )
+        }
+        .sortedByDescending { it.matchText?.length ?: 0 }
+
+    var rewritten = input
+    for (entry in aliasEntries) {
+        val alias = entry.matchText?.trim() ?: continue
+        val aliasLower = alias.lowercase(Locale.US)
+        if (aliasLower.isBlank()) continue
+
+        val canonical = when {
+            entry.value.equals("OPEN", ignoreCase = true) -> "open"
+            entry.value.equals("OPEN_APP", ignoreCase = true) -> "open"
+            entry.value.equals("NAVIGATE", ignoreCase = true) -> "go to"
+            else -> entry.value.trim()
+        }
+
+        if (canonical.isBlank()) continue
+
+        val aliasPattern = Regex("(?i)(^|\\s)${Regex.escape(aliasLower)}($|\\s)")
+        rewritten = aliasPattern.replace(rewritten) { match ->
+            val leading = match.groupValues[1]
+            val trailing = match.groupValues[2]
+            "$leading$canonical$trailing"
+        }
+    }
+
+    return rewritten.replace(Regex("\\s+"), " ").trim()
+}
 
 fun isAffirmativeConfirmation(command: String): Boolean {
     val text = normalizeLearningText(command)
