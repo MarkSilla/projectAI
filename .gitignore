@@ -19,8 +19,6 @@ local.properties
 # information for Eclipse / Flash Builder.
 
 # Local AI models
-models/*.gguf
-*.gguf
 # Gradle / Android build files
 .gradle/
 build/
