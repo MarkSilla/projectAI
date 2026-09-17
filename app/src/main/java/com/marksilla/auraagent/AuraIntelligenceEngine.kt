@@ -407,6 +407,10 @@ class AuraMemoryEngine(
         val term = parsed.first
         val meaning = parsed.second
 
+        if (isReservedCommandVerb(term)) {
+            return null
+        }
+
         val kind = when {
             meaning.contains("OPEN") -> "learned_term"
             meaning.contains("PREFERENCE") -> "preference"

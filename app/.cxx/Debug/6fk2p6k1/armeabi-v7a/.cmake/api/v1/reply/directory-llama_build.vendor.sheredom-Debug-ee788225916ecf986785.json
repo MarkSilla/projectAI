@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "llama_build/vendor/sheredom",
+		"source" : "llama.cpp/vendor/sheredom"
+	}
+}

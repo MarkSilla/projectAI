@@ -146,4 +146,29 @@ class CommandLearningEngineTest {
         assertTrue(entries.any { it.type == "application_alias" || it.category == "implicit" })
         assertTrue(entries.any { it.matchText == "tap" || it.matchText == "tap facebook" })
     }
+
+    @Test
+    fun standardOpenVerbIsNotOverwrittenByLearnedAppAlias() {
+        val memory = AuraMemoryEngine(InMemoryMemoryStore())
+        memory.learnFromExplicitInstruction("open means facebook")
+
+        val rewritten = resolveLearnedCommandAliases("open insta", memory)
+
+        assertEquals("open insta", rewritten)
+
+        val understanding = AuraCommandUnderstanding(
+            learningEngine = CommandLearningEngine(),
+            localAi = LocalCommandAi(),
+            memory = memory
+        ).understand(
+            command = "open insta",
+            installedApps = listOf(
+                InstalledApp("Facebook", "com.facebook.katana"),
+                InstalledApp("Instagram", "com.instagram.android")
+            )
+        )
+
+        assertEquals(AuraCommandIntent.OPEN_APP, understanding.intent)
+        assertEquals("Instagram", understanding.target)
+    }
 }

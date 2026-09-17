@@ -55,6 +55,7 @@ class AuraCommandUnderstanding(
                     normalizedAppName == normalizedParserTarget
                 }
                 ?.name
+                ?: findApp(installedApps, parserTarget)?.name
                 ?: parserTarget
 
             return CommandUnderstanding(
@@ -185,6 +186,30 @@ fun shouldConfirmOpenApp(
 ): Boolean =
     decideOpenAppAction(understanding) == CommandAction.CONFIRM
 
+fun isReservedCommandVerb(value: String): Boolean {
+    val normalized = value.trim().lowercase(Locale.US)
+    if (normalized.isBlank()) {
+        return false
+    }
+
+    return normalized in setOf(
+        "open",
+        "launch",
+        "start",
+        "run",
+        "go to",
+        "goto",
+        "click",
+        "buksan",
+        "pasok",
+        "sakay",
+        "pumunta",
+        "open app",
+        "launch app",
+        "start app"
+    ) || normalized.contains("open app") || normalized.contains("launch app")
+}
+
 private fun normalizeLearnedAction(value: String): String =
     when {
         value.equals("OPEN", ignoreCase = true) || value.equals("OPEN_APP", ignoreCase = true) -> "open"
@@ -231,7 +256,7 @@ fun resolveLearnedCommandAliases(
         }
 
         val aliasLower = alias.lowercase(Locale.US)
-        if (aliasLower.isBlank() || canonical.isBlank()) continue
+        if (aliasLower.isBlank() || canonical.isBlank() || isReservedCommandVerb(aliasLower)) continue
 
         val aliasPattern = Regex("(?i)(^|\\s)${Regex.escape(aliasLower)}($|\\s)")
         rewritten = aliasPattern.replace(rewritten) { match ->

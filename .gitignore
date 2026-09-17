@@ -17,3 +17,11 @@ local.properties
 # Project files, i.e. `.project`, `.actionScriptProperties` and `.flexProperties`
 # should NOT be excluded as they contain compiler settings and other important
 # information for Eclipse / Flash Builder.
+
+# Local AI models
+models/*.gguf
+*.gguf
+# Gradle / Android build files
+.gradle/
+build/
+*/build/

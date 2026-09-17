@@ -817,6 +817,18 @@ fun AuraApp(
         remember {
             OnlineAiClient(context.applicationContext)
         }
+    val localLLM =
+        remember {
+            LocalLLMRuntime(
+                context = context.applicationContext,
+                config = LocalLLMConfig(
+                    contextSize = 2048,
+                    maxTokens = 256,
+                    threads = 4,
+                    useGpu = false
+                )
+            )
+        }
     val webSearchManager =
         remember {
             WebSearchManager(includeRelatedImages = true)
@@ -1545,12 +1557,15 @@ fun AuraApp(
 
     fun processChatInput(
         input: String,
-        onlineReply: String? = null
+        onlineReply: String? = null,
+        localReply: String? = null
     ) {
         val lowerInput = input.lowercase(Locale.US)
         val replyText =
             onlineReply
                 ?.takeIf { it.isNotBlank() }
+                ?: localReply
+                    ?.takeIf { it.isNotBlank() }
                 ?: generateAssistantReply(
                     prompt = input,
                     recentContext = recentChatContext,
@@ -1959,6 +1974,18 @@ fun AuraApp(
                 return@LaunchedEffect
             }
 
+            val localReply =
+                if (aiMode == AiMode.OFFLINE) {
+                    withContext(Dispatchers.IO) {
+                        localLLM.generate(
+                            prompt = request,
+                            context = recentChatContext,
+                            maxTokens = 256
+                        )
+                    }
+                } else {
+                    null
+                }
             val onlineReply =
                 if (aiMode == AiMode.ONLINE) {
                     withContext(Dispatchers.IO) {
@@ -1975,9 +2002,17 @@ fun AuraApp(
                     "Online AI unavailable; using Offline mode" +
                         (onlineAiClient.lastError?.let { " ($it)" } ?: "")
             }
+            if (aiMode == AiMode.OFFLINE && localReply == null) {
+                status = localLLM.status
+            }
             processChatInput(
                 input = request,
-                onlineReply = onlineReply
+                onlineReply = onlineReply,
+                localReply = localReply ?: localLLM.generate(
+                    prompt = request,
+                    context = recentChatContext,
+                    maxTokens = 256
+                )
             )
         } finally {
             auraThinking = false
