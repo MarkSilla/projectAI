@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.marksilla.auraagent.app-mergeDebugResources-43:/values-v30/values-v30.xml",
+            "outputFile": "com.marksilla.auraagent.app-mergeDebugResources-52:/values-v30/values-v30.xml",
             "map": [
                 {
-                    "source": "/data/data/com.termux/files/home/.gradle/caches/9.7.1/transforms/86efc711580707554562c9dcb41b9e12/transformed/material3-release/res/values-v30/values-v30.xml",
+                    "source": "C:\\Users\\ADMIN\\.gradle\\caches\\8.9\\transforms\\dff5af57d2c121044da2ac0e86d00a4d\\transformed\\material3-release\\res\\values-v30\\values-v30.xml",
                     "from": {
                         "startLines": "2",
                         "startColumns": "4",
