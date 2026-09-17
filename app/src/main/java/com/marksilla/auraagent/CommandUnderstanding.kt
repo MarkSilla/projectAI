@@ -1,5 +1,7 @@
 package com.marksilla.auraagent
 
+import java.util.Locale
+
 enum class AuraCommandIntent {
     OPEN_APP,
     UNKNOWN
