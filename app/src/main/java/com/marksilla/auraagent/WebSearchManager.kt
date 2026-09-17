@@ -496,11 +496,32 @@ internal fun formatWebSearchReply(response: WebSearchResponse): String {
 }
 
 internal fun buildWebSearchSummary(results: List<WebSearchResult>): String {
-    val sentences = selectInformativeWebSentences(results)
+    val evidence = selectInformativeWebSentences(results)
 
-    return sentences
+    return evidence
         .joinToString(" ")
         .ifBlank { "The search returned results, but no summary text was available." }
+}
+
+internal fun buildWebSearchKeyPoints(results: List<WebSearchResult>): List<String> {
+    val evidence = selectInformativeWebSentences(results)
+    if (evidence.isEmpty()) {
+        return emptyList()
+    }
+
+    return evidence
+        .flatMap { sentence ->
+            sentence
+                .split(Regex("(?<=\\.)\\s+|\\n+"))
+                .map { it.trim() }
+                .filter { part ->
+                    part.length >= 20 &&
+                        part.any(Char::isLetterOrDigit) &&
+                        !isUrlLikeText(part)
+                }
+        }
+        .distinctBy(::normalizeWebText)
+        .take(5)
 }
 
 private fun selectInformativeWebSentences(
@@ -515,6 +536,7 @@ private fun selectInformativeWebSentences(
             }
             .filter { sentence ->
                 sentence.length >= 25 &&
+                    sentence.any(Char::isLetterOrDigit) &&
                     !isUrlLikeText(sentence)
             }
             .distinctBy(::normalizeWebText)
@@ -550,20 +572,6 @@ private fun normalizeWebText(value: String): String {
         .replace(Regex("[^a-z0-9\\s]"), " ")
         .replace(Regex("\\s+"), " ")
         .trim()
-}
-
-internal fun buildWebSearchKeyPoints(
-    results: List<WebSearchResult>
-): List<String> {
-    return results
-        .flatMap { result ->
-            result.snippet
-                .split(Regex("(?<=[.!?])\\s+|\\n+"))
-                .map { it.trim() }
-        }
-        .filter { it.length >= 25 && !isUrlLikeText(it) }
-        .distinctBy(::normalizeWebText)
-        .take(5)
 }
 
 internal fun isUrlLikeText(value: String): Boolean {

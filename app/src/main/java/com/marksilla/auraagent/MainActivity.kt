@@ -851,6 +851,14 @@ fun AuraApp(
                 learningEngine = CommandLearningEngine(context.applicationContext)
             )
         }
+    val auraMemoryEngine =
+        remember {
+            createAndroidMemoryEngine(context.applicationContext)
+        }
+    val auraIntelligenceEngine =
+        remember {
+            AuraIntelligenceEngine(memoryEngine = auraMemoryEngine)
+        }
     var commandHistory by remember {
         mutableStateOf(loadCommandHistory(context))
     }
@@ -1558,6 +1566,21 @@ fun AuraApp(
             return
         }
 
+        val explicitLearning = auraMemoryEngine.learnFromExplicitInstruction(input)
+        if (explicitLearning != null) {
+            completeChatExchange(
+                userPrompt = input,
+                assistantReply = "Got it. I’ll remember that ${explicitLearning.matchText ?: "that term"} means ${explicitLearning.value}.",
+                result =
+                    ChatResult(
+                        title = "Memory learned",
+                        detail = "${explicitLearning.matchText ?: "term"} → ${explicitLearning.value}",
+                        tone = ChatResultTone.SUCCESS
+                    )
+            )
+            return
+        }
+
         if (
             lowerInput.contains("remember") ||
             lowerInput.contains("save") ||
@@ -1587,6 +1610,29 @@ fun AuraApp(
                     )
             )
             return
+        }
+
+        val intelligence = auraIntelligenceEngine.classify(input, AuraContext(), auraMemoryEngine)
+        if (intelligence.intent == AuraIntent.OPEN_APPLICATION && intelligence.confidence >= 0.80f) {
+            val resolvedInput = auraIntelligenceEngine.resolveMemoryTerms(input, auraMemoryEngine)
+            val data = extractOpenCommand(resolvedInput)
+            if (!data.isNullOrBlank()) {
+                val app = findApp(installedApps, data)
+                if (app != null) {
+                    val opened = openApp(context, app)
+                    completeChatExchange(
+                        userPrompt = input,
+                        assistantReply = if (opened) "Opening ${app.name} now." else "I could not open ${app.name}.",
+                        result =
+                            ChatResult(
+                                title = if (opened) "App opened" else "Open app failed",
+                                detail = app.name,
+                                tone = if (opened) ChatResultTone.SUCCESS else ChatResultTone.WARNING
+                            )
+                    )
+                    return
+                }
+            }
         }
 
         val deviceCommand = parseDeviceCommand(input)

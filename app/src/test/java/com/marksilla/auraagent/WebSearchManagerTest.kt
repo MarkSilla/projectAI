@@ -246,6 +246,37 @@ class WebSearchManagerTest {
     }
 
     @Test
+    fun derivesKeyPointsFromTheSameSelectedEvidence() {
+        val results =
+            listOf(
+                WebSearchResult(
+                    title = "RAM guide",
+                    url = "https://example.com/one",
+                    snippet = "RAM temporarily stores active data for current apps."
+                ),
+                WebSearchResult(
+                    title = "Memory basics",
+                    url = "https://example.com/two",
+                    snippet = "More RAM improves multitasking across apps. That is why larger memory helps performance."
+                ),
+                WebSearchResult(
+                    title = "System overview",
+                    url = "https://example.com/three",
+                    snippet = "Operating systems use virtual memory to manage background tasks."
+                )
+            )
+
+        val summary = buildWebSearchSummary(results)
+        val keyPoints = buildWebSearchKeyPoints(results)
+
+        assertTrue(summary.contains("RAM temporarily stores active data for current apps."))
+        assertTrue(summary.contains("More RAM improves multitasking across apps."))
+        assertTrue(keyPoints.any { it.contains("RAM temporarily stores active data for current apps") })
+        assertTrue(keyPoints.any { it.contains("More RAM improves multitasking across apps") })
+        assertTrue(!keyPoints.any { it.contains("Operating systems use virtual memory to manage background tasks") })
+    }
+
+    @Test
     fun identifiesUrlOnlyDisplayText() {
         assertTrue(isUrlLikeText("https://example.com/article"))
         assertTrue(!isUrlLikeText("RAM guide"))
