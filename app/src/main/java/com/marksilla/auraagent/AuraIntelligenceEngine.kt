@@ -133,7 +133,8 @@ class AuraNlpEngine {
 
     fun resolveReferences(input: String, context: AuraContext): List<String> {
         val normalized = normalize(input)
-        if (normalized.contains(" he ") || normalized.contains(" she ") || normalized.contains(" they ")) {
+        val pronouns = Regex("\\b(he|she|they|him|her|them|it)\\b")
+        if (pronouns.containsMatchIn(normalized)) {
             val names = context.activeEntities.map { it.name }
             if (names.isNotEmpty()) {
                 return names.map { "${normalize(it)} -> ${normalize(input)}" }
@@ -319,13 +320,27 @@ class AuraMemoryEngine(
     }
 
     fun searchMemory(query: String): List<MemoryEntry> {
-        val q = query.lowercase(Locale.ROOT)
+        val q = query.lowercase(Locale.ROOT).trim()
+        if (q.isBlank()) {
+            return emptyList()
+        }
+
+        val tokens = q
+            .split(Regex("\\s+"))
+            .filter { it.isNotBlank() }
+            .distinct()
+
         return (longTerm + shortTerm)
             .filter { entry ->
-                entry.type.lowercase(Locale.ROOT).contains(q) ||
-                    entry.category.lowercase(Locale.ROOT).contains(q) ||
-                    entry.value.lowercase(Locale.ROOT).contains(q) ||
-                    (entry.matchText?.lowercase(Locale.ROOT)?.contains(q) == true)
+                val haystack = listOf(
+                    entry.type,
+                    entry.category,
+                    entry.value,
+                    entry.matchText ?: ""
+                ).joinToString(" ").lowercase(Locale.ROOT)
+
+                q in haystack ||
+                    tokens.any { token -> token.length >= 2 && haystack.contains(token) }
             }
             .distinctBy { it.type to it.category to it.value }
     }
@@ -597,10 +612,10 @@ class AuraIntelligenceEngine(
         }
 
         val pending = mutableListOf<String>()
-        pending += "Identify the topic and required facts"
-        pending += "Search for relevant current sources"
-        pending += "Compare evidence and detect conflicts"
-        pending += "Generate a structured answer with sources"
+        pending += "identify the topic and required facts"
+        pending += "search for relevant current sources"
+        pending += "compare evidence and detect conflicts"
+        pending += "generate a structured answer with sources"
 
         val steps = listOf(
             "Identify topic",
