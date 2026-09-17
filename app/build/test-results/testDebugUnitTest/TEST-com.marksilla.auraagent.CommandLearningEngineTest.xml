@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.marksilla.auraagent.CommandLearningEngineTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T04:43:21" hostname="MARKIGOP" time="0.022">
+<testsuite name="com.marksilla.auraagent.CommandLearningEngineTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-17T05:52:21.203Z" hostname="MARKIGOP" time="0.027">
   <properties/>
-  <testcase name="storesGeneralizedPatternInsteadOfRawPhrase" classname="com.marksilla.auraagent.CommandLearningEngineTest" time="0.007"/>
-  <testcase name="learnsGeneralizedPatternAndMatchesNewApp" classname="com.marksilla.auraagent.CommandLearningEngineTest" time="0.003"/>
-  <testcase name="learnedAliasResolvesBeforeOpenCommandParsing" classname="com.marksilla.auraagent.CommandLearningEngineTest" time="0.012"/>
+  <testcase name="storesGeneralizedPatternInsteadOfRawPhrase" classname="com.marksilla.auraagent.CommandLearningEngineTest" time="0.008"/>
+  <testcase name="learnsGeneralizedPatternAndMatchesNewApp" classname="com.marksilla.auraagent.CommandLearningEngineTest" time="0.004"/>
+  <testcase name="memoryEntriesAreAvailableForDisplayInTheMemoryScreen" classname="com.marksilla.auraagent.CommandLearningEngineTest" time="0.004"/>
+  <testcase name="learnedAliasResolvesBeforeOpenCommandParsing" classname="com.marksilla.auraagent.CommandLearningEngineTest" time="0.01"/>
+  <testcase name="successfulOpenCommandAutomaticallyLearnsAliasForNextUse" classname="com.marksilla.auraagent.CommandLearningEngineTest" time="0.001"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>

@@ -348,6 +348,11 @@ class AuraMemoryEngine(
     fun getRelatedMemories(query: String): List<MemoryEntry> =
         searchMemory(query)
 
+    fun allMemory(): List<MemoryEntry> =
+        (longTerm + shortTerm)
+            .distinctBy { entry -> entry.type to entry.category to entry.value to entry.matchText }
+            .sortedByDescending { it.timestamp }
+
     fun detectExplicitLearningInstruction(input: String): Pair<String, String>? {
         val normalized = input.lowercase(Locale.ROOT)
         val patterns = listOf(

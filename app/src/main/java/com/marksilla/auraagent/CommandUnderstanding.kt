@@ -105,6 +105,56 @@ class AuraCommandUnderstanding(
             installedApps = installedApps,
             understanding = understanding
         )
+
+        if (understanding.intent == AuraCommandIntent.OPEN_APP && memory != null) {
+            rememberSuccessfulOpenAlias(command, understanding.target, memory)
+        }
+    }
+
+    private fun rememberSuccessfulOpenAlias(
+        command: String,
+        target: String?,
+        memory: AuraMemoryEngine
+    ) {
+        val appTarget = target?.trim().orEmpty()
+        if (appTarget.isBlank()) {
+            return
+        }
+
+        val normalizedCommand = normalizeLearningText(command)
+        val normalizedTarget = normalizeLearningText(appTarget)
+        val withoutTarget = normalizedCommand
+            .replace(normalizedTarget, " ")
+            .replace(
+                Regex("\\b(?:open|launch|start|run|buksan|go to|goto|pasok|sakay|lipat|pumunta|paki buksan|paki open|open mo|open app|start app|launch app|please|can you|could you|would you|hey|hi|hello|mo|ang|yung|natin|tayo|ko|na|nga|naman|now|sige)\\b"),
+                " "
+            )
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+        val alias = withoutTarget
+            .split(Regex("\\s+"))
+            .filter { token ->
+                token.isNotBlank() &&
+                    token.length > 1 &&
+                    !token.equals("ang", ignoreCase = true) &&
+                    !token.equals("yung", ignoreCase = true) &&
+                    !token.equals("mo", ignoreCase = true) &&
+                    !token.equals("ko", ignoreCase = true) &&
+                    !token.equals("natin", ignoreCase = true) &&
+                    !token.equals("tayo", ignoreCase = true) &&
+                    !token.equals("sige", ignoreCase = true) &&
+                    !token.equals("naman", ignoreCase = true) &&
+                    !token.equals("please", ignoreCase = true)
+            }
+            .joinToString(" ")
+            .trim()
+
+        if (alias.isBlank()) {
+            return
+        }
+
+        memory.learnFromExplicitInstruction("$alias means open")
     }
 }
 

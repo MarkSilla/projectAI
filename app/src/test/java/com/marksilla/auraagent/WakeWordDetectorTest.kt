@@ -156,6 +156,10 @@ class WakeWordDetectorTest {
             "YouTube",
             findApp(apps, "you tube")?.name
         )
+        assertEquals(
+            "Facebook",
+            findApp(apps, "facebool")?.name
+        )
     }
 
     @Test

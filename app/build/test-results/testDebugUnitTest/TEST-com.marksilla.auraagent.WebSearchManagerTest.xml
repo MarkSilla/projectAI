@@ -1,23 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.marksilla.auraagent.WebSearchManagerTest" tests="17" skipped="0" failures="0" errors="0" timestamp="2026-09-17T04:43:21" hostname="MARKIGOP" time="0.365">
+<testsuite name="com.marksilla.auraagent.WebSearchManagerTest" tests="17" skipped="0" failures="0" errors="0" timestamp="2026-09-17T05:52:21.480Z" hostname="MARKIGOP" time="0.281">
   <properties/>
-  <testcase name="ignoresMalformedResultMarkup" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.004"/>
-  <testcase name="handlesNetworkFailure" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.264"/>
-  <testcase name="ranksTrustedAndRelevantSourcesFirst" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.05"/>
-  <testcase name="parsesImageSearchResults" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.012"/>
+  <testcase name="ignoresMalformedResultMarkup" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.005"/>
+  <testcase name="handlesNetworkFailure" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.259"/>
+  <testcase name="ranksTrustedAndRelevantSourcesFirst" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.005"/>
+  <testcase name="parsesImageSearchResults" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.002"/>
   <testcase name="cachesSuccessfulSearchesUntilCacheIsCleared" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.002"/>
-  <testcase name="derivesKeyPointsFromTheSameSelectedEvidence" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.003"/>
+  <testcase name="derivesKeyPointsFromTheSameSelectedEvidence" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.002"/>
   <testcase name="parsesStructuredSearchResults" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.001"/>
   <testcase name="onlyExplicitWebCommandsTriggerSearch" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.0"/>
   <testcase name="extractsExplicitWebSearchQuery" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.0"/>
-  <testcase name="identifiesUrlOnlyDisplayText" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.001"/>
+  <testcase name="identifiesUrlOnlyDisplayText" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.0"/>
   <testcase name="attachesRelatedImageToNormalWebResults" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.001"/>
-  <testcase name="explicitWebSearchUsesOnlyTextInsideBraces" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.0"/>
-  <testcase name="formatsSummaryAndKeyPointsFromSearchResults" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.001"/>
+  <testcase name="explicitWebSearchUsesOnlyTextInsideBraces" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.001"/>
+  <testcase name="formatsSummaryAndKeyPointsFromSearchResults" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.0"/>
   <testcase name="summaryRemovesDuplicateAndShortSearchFragments" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.0"/>
   <testcase name="detectsVideoSearchQueries" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.0"/>
-  <testcase name="handlesEmptyResults" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.016"/>
-  <testcase name="normalizesRedirectAndProtocolRelativeSourceLinks" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.009"/>
+  <testcase name="handlesEmptyResults" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.0"/>
+  <testcase name="normalizesRedirectAndProtocolRelativeSourceLinks" classname="com.marksilla.auraagent.WebSearchManagerTest" time="0.002"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>

@@ -138,6 +138,11 @@ private enum class AuraScreen(
         label = "Home",
         icon = Icons.Filled.Home
     ),
+    MEMORY(
+        title = "AURA Memory",
+        label = "Memory",
+        icon = Icons.Filled.Star
+    ),
     REVIEWER(
         title = "Document Reviewer",
         label = "Reviewer",
@@ -845,15 +850,16 @@ fun AuraApp(
     var onlineApiKeyConfigured by remember {
         mutableStateOf(onlineAiClient.isConfigured)
     }
-    val commandUnderstandingEngine =
-        remember {
-            AuraCommandUnderstanding(
-                learningEngine = CommandLearningEngine(context.applicationContext)
-            )
-        }
     val auraMemoryEngine =
         remember {
             createAndroidMemoryEngine(context.applicationContext)
+        }
+    val commandUnderstandingEngine =
+        remember {
+            AuraCommandUnderstanding(
+                learningEngine = CommandLearningEngine(context.applicationContext),
+                memory = auraMemoryEngine
+            )
         }
     val auraIntelligenceEngine =
         remember {
@@ -1709,6 +1715,26 @@ fun AuraApp(
             return
         }
 
+        if (isAppOpenRequest(input)) {
+            val fuzzyMatches = findAppMatches(installedApps, input, limit = 3)
+            if (fuzzyMatches.size > 1 && fuzzyMatches.first().score - fuzzyMatches[1].score < 0.12f) {
+                val candidateNames = fuzzyMatches.map { it.app.name }.distinct().take(3)
+                val target = candidateNames.first()
+                pendingConfirmation = PendingConfirmation(target, input)
+                completeChatExchange(
+                    userPrompt = input,
+                    assistantReply = "Did you mean ${candidateNames.joinToString(" or ")}?",
+                    result =
+                        ChatResult(
+                            title = "Did you mean",
+                            detail = candidateNames.joinToString(" or "),
+                            tone = ChatResultTone.INFO
+                        )
+                )
+                return
+            }
+        }
+
         val action = decideOpenAppAction(understanding)
 
         when (action) {
@@ -2456,6 +2482,19 @@ fun AuraApp(
                                 },
                                 onRunRoutinePreset = { preset ->
                                     runRoutinePreset(preset)
+                                }
+                            )
+
+                        AuraScreen.MEMORY ->
+                            MemoryScreen(
+                                fg = fg,
+                                card = card,
+                                contentMaxWidth = contentMaxWidth,
+                                horizontalPadding = horizontalPadding,
+                                verticalSpacing = verticalSpacing,
+                                memoryEntries = auraMemoryEngine.allMemory(),
+                                onOpenCommand = { command ->
+                                    chatInput = command
                                 }
                             )
 
@@ -3761,6 +3800,121 @@ private fun WebSearchResultImage(
             modifier = modifier,
             contentScale = ContentScale.Crop
         )
+    }
+}
+
+@Composable
+private fun MemoryScreen(
+    fg: Color,
+    card: Color,
+    contentMaxWidth: Dp,
+    horizontalPadding: Dp,
+    verticalSpacing: Dp,
+    memoryEntries: List<MemoryEntry>,
+    onOpenCommand: (String) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = horizontalPadding, vertical = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(verticalSpacing)
+    ) {
+        item {
+            ScreenHeader(
+                title = "AURA Memory",
+                subtitle = "Learned aliases, preferences, and local patterns.",
+                fg = fg,
+                modifier = Modifier.widthIn(max = contentMaxWidth).fillMaxWidth()
+            )
+        }
+
+        if (memoryEntries.isEmpty()) {
+            item {
+                InfoCard(
+                    title = "No stored memory yet",
+                    body = "Say, ‘When I say X, it means open’ or perform a successful app command to teach AURA locally.",
+                    card = card,
+                    fg = fg,
+                    modifier = Modifier.widthIn(max = contentMaxWidth).fillMaxWidth()
+                )
+            }
+        } else {
+            for (entry in memoryEntries) {
+                item {
+                    Card(
+                        modifier = Modifier.widthIn(max = contentMaxWidth).fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = card)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = entry.category.replaceFirstChar { it.uppercase() },
+                                    color = fg,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = entry.source,
+                                    color = fg.copy(alpha = 0.62f),
+                                    fontSize = 11.sp
+                                )
+                            }
+
+                            Text(
+                                text = entry.value,
+                                color = fg,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            if (!entry.matchText.isNullOrBlank()) {
+                                Text(
+                                    text = "Match: ${entry.matchText}",
+                                    color = fg.copy(alpha = 0.76f),
+                                    fontSize = 12.sp
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Type: ${entry.type}",
+                                    color = fg.copy(alpha = 0.7f),
+                                    fontSize = 12.sp
+                                )
+                                Text(
+                                    text = "Confidence: ${"%.2f".format(entry.confidence)}",
+                                    color = fg.copy(alpha = 0.7f),
+                                    fontSize = 12.sp
+                                )
+                            }
+
+                            if (entry.matchText != null && entry.matchText.isNotEmpty()) {
+                                TextButton(
+                                    onClick = { onOpenCommand(entry.matchText.orEmpty()) },
+                                    modifier = Modifier.align(Alignment.Start)
+                                ) {
+                                    Text("Use this memory")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

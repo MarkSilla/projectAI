@@ -4,7 +4,7 @@
             "outputFile": "com.marksilla.auraagent.app-mergeDebugResources-52:/values-h720dp-v13/values-h720dp-v13.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\ADMIN\\.gradle\\caches\\8.9\\transforms\\4d4e40293a2b711328a359b641021902\\transformed\\appcompat-1.6.1\\res\\values-h720dp-v13\\values-h720dp-v13.xml",
+                    "source": "C:\\Users\\ADMIN\\.gradle\\caches\\9.7.1\\transforms\\942b91fa0d59b10756b9a13f5d60e521\\transformed\\appcompat-1.6.1\\res\\values-h720dp-v13\\values-h720dp-v13.xml",
                     "from": {
                         "startLines": "2",
                         "startColumns": "4",

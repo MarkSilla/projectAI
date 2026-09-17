@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.marksilla.auraagent.ConversationMemoryTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T04:43:21" hostname="MARKIGOP" time="0.017">
+<testsuite name="com.marksilla.auraagent.ConversationMemoryTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T05:52:21.239Z" hostname="MARKIGOP" time="0.02">
   <properties/>
-  <testcase name="keepsFollowupReplyShortAndRelevant" classname="com.marksilla.auraagent.ConversationMemoryTest" time="0.007"/>
-  <testcase name="understandsTaglishDocumentReviewRequest" classname="com.marksilla.auraagent.ConversationMemoryTest" time="0.0"/>
-  <testcase name="asksForAppWhenOpenRequestHasNoTarget" classname="com.marksilla.auraagent.ConversationMemoryTest" time="0.001"/>
-  <testcase name="usesPersonalMemoryToReferenceRepeatedHabits" classname="com.marksilla.auraagent.ConversationMemoryTest" time="0.001"/>
+  <testcase name="keepsFollowupReplyShortAndRelevant" classname="com.marksilla.auraagent.ConversationMemoryTest" time="0.012"/>
+  <testcase name="understandsTaglishDocumentReviewRequest" classname="com.marksilla.auraagent.ConversationMemoryTest" time="0.001"/>
+  <testcase name="asksForAppWhenOpenRequestHasNoTarget" classname="com.marksilla.auraagent.ConversationMemoryTest" time="0.0"/>
+  <testcase name="usesPersonalMemoryToReferenceRepeatedHabits" classname="com.marksilla.auraagent.ConversationMemoryTest" time="0.0"/>
   <testcase name="explainsCapabilitiesForCapabilityQuestion" classname="com.marksilla.auraagent.ConversationMemoryTest" time="0.0"/>
   <testcase name="respondsContextuallyWhenRecentConversationMentionedSameApp" classname="com.marksilla.auraagent.ConversationMemoryTest" time="0.0"/>
   <testcase name="understandsWorkFollowUpFromRecentContext" classname="com.marksilla.auraagent.ConversationMemoryTest" time="0.006"/>
-  <testcase name="recognizesRoutineSuggestionsForWorkdayPatterns" classname="com.marksilla.auraagent.ConversationMemoryTest" time="0.001"/>
+  <testcase name="recognizesRoutineSuggestionsForWorkdayPatterns" classname="com.marksilla.auraagent.ConversationMemoryTest" time="0.0"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>

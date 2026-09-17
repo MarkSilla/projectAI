@@ -27,51 +27,140 @@ fun getInstalledApps(context: Context): List<InstalledApp> {
         .sortedBy { it.name.lowercase() }
 }
 
+data class AppMatchCandidate(
+    val app: InstalledApp,
+    val score: Float
+)
+
 fun findApp(
     apps: List<InstalledApp>,
     requestedName: String
 ): InstalledApp? {
-
-    val query = normalizeAppText(requestedName)
-
-    if (query.spaced.isBlank()) {
+    val matches = findAppMatches(apps, requestedName, limit = 3)
+    if (matches.isEmpty()) {
         return null
+    }
+
+    val top = matches.first()
+    val next = matches.getOrNull(1)
+    return if (top.score >= 0.72f && (next == null || top.score - next.score >= 0.10f)) {
+        top.app
+    } else {
+        null
+    }
+}
+
+fun findAppMatches(
+    apps: List<InstalledApp>,
+    requestedName: String,
+    limit: Int = 3
+): List<AppMatchCandidate> {
+    val query = normalizeAppText(requestedName)
+    if (query.spaced.isBlank()) {
+        return emptyList()
     }
 
     val queryKeys =
         listOf(query) + appAliases(query.spaced)
             .map(::normalizeAppText)
 
-    // Exact match
-    apps.firstOrNull {
-        val appName = normalizeAppText(it.name)
-        queryKeys.any { key ->
-            appName.spaced == key.spaced ||
-                appName.compact == key.compact
+    val exactMatches = mutableListOf<AppMatchCandidate>()
+    val prefixMatches = mutableListOf<AppMatchCandidate>()
+    val containsMatches = mutableListOf<AppMatchCandidate>()
+    val fuzzyMatches = mutableListOf<AppMatchCandidate>()
+
+    for (app in apps) {
+        val appName = normalizeAppText(app.name)
+        for (key in queryKeys) {
+            val score = when {
+                appName.spaced == key.spaced || appName.compact == key.compact -> 1.0f
+                appName.spaced.startsWith(key.spaced) || appName.compact.startsWith(key.compact) -> 0.95f
+                appName.spaced.contains(key.spaced) || appName.compact.contains(key.compact) -> 0.9f
+                else -> fuzzyAppMatchScore(key, appName)
+            }
+
+            if (score <= 0.0f) continue
+            val candidate = AppMatchCandidate(app, score)
+            when {
+                score >= 0.95f -> exactMatches += candidate
+                score >= 0.90f -> prefixMatches += candidate
+                score >= 0.85f -> containsMatches += candidate
+                score > 0.0f -> fuzzyMatches += candidate
+            }
         }
-    }?.let {
-        return it
     }
 
-    // Starts with
-    apps.firstOrNull {
-        val appName = normalizeAppText(it.name)
-        queryKeys.any { key ->
-            appName.spaced.startsWith(key.spaced) ||
-                appName.compact.startsWith(key.compact)
-        }
-    }?.let {
-        return it
+    return (exactMatches + prefixMatches + containsMatches + fuzzyMatches)
+        .distinctBy { it.app.packageName }
+        .sortedByDescending { it.score }
+        .take(limit)
+}
+
+private fun fuzzyAppMatchScore(
+    query: AppSearchText,
+    appName: AppSearchText
+): Float {
+    if (query.spaced.isBlank() || appName.spaced.isBlank()) {
+        return 0.0f
     }
 
-    // Contains
-    return apps.firstOrNull {
-        val appName = normalizeAppText(it.name)
-        queryKeys.any { key ->
-            appName.spaced.contains(key.spaced) ||
-                appName.compact.contains(key.compact)
+    if (query.compact == appName.compact) {
+        return 1.0f
+    }
+
+    val compactQuery = query.compact
+    val compactApp = appName.compact
+
+    if (compactApp.startsWith(compactQuery) || compactQuery.startsWith(compactApp)) {
+        return 0.9f
+    }
+
+    if (compactApp.contains(compactQuery) || compactQuery.contains(compactApp)) {
+        return 0.85f
+    }
+
+    val levenshtein = levenshteinDistance(compactQuery, compactApp)
+    val maxLength = maxOf(compactQuery.length, compactApp.length)
+    if (maxLength == 0) {
+        return 0.0f
+    }
+
+    val distanceRatio = 1.0f - (levenshtein.toFloat() / maxLength.toFloat())
+    val prefixBonus = if (compactApp.firstOrNull() == compactQuery.firstOrNull()) 0.12f else 0.0f
+    val finalScore = distanceRatio + prefixBonus
+
+    return if (finalScore >= 0.72f) finalScore else 0.0f
+}
+
+private fun levenshteinDistance(left: String, right: String): Int {
+    if (left == right) return 0
+    if (left.isEmpty()) return right.length
+    if (right.isEmpty()) return left.length
+
+    val previous = IntArray(right.length + 1)
+    val current = IntArray(right.length + 1)
+
+    for (index in 0..right.length) {
+        previous[index] = index
+    }
+
+    for (i in left.indices) {
+        current[0] = i + 1
+        for (j in right.indices) {
+            val cost = if (left[i] == right[j]) 0 else 1
+            current[j + 1] = minOf(
+                current[j] + 1,
+                previous[j + 1] + 1,
+                previous[j] + cost
+            )
+        }
+
+        for (j in 0..right.length) {
+            previous[j] = current[j]
         }
     }
+
+    return current[right.length]
 }
 
 fun findAppCandidates(

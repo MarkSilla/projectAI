@@ -76,7 +76,8 @@ class CommandLearningEngineTest {
 
         val understanding = AuraCommandUnderstanding(
             learningEngine = CommandLearningEngine(),
-            localAi = LocalCommandAi()
+            localAi = LocalCommandAi(),
+            memory = memory
         ).understand(
             command = rewritten,
             installedApps = listOf(
@@ -86,5 +87,63 @@ class CommandLearningEngineTest {
 
         assertEquals(AuraCommandIntent.OPEN_APP, understanding.intent)
         assertEquals("Facebook", understanding.target)
+    }
+
+    @Test
+    fun successfulOpenCommandAutomaticallyLearnsAliasForNextUse() {
+        val memory = AuraMemoryEngine(InMemoryMemoryStore())
+        val understandingEngine = AuraCommandUnderstanding(
+            learningEngine = CommandLearningEngine(),
+            localAi = LocalCommandAi(),
+            memory = memory
+        )
+
+        understandingEngine.learnSuccessfulCommand(
+            command = "tap Facebook",
+            installedApps = listOf(
+                InstalledApp("Facebook", "com.facebook.katana")
+            ),
+            understanding = CommandUnderstanding(
+                intent = AuraCommandIntent.OPEN_APP,
+                target = "Facebook",
+                confidence = 0.96f,
+                source = CommandUnderstandingSource.LOCAL_AI,
+                learnedPattern = "tap {app}"
+            )
+        )
+
+        val rewritten = resolveLearnedCommandAliases("tap Facebook", memory)
+
+        assertEquals("open Facebook", rewritten)
+
+        val nextUnderstanding = understandingEngine.understand(
+            command = "tap Facebook",
+            installedApps = listOf(
+                InstalledApp("Facebook", "com.facebook.katana")
+            )
+        )
+
+        assertEquals(AuraCommandIntent.OPEN_APP, nextUnderstanding.intent)
+        assertEquals("Facebook", nextUnderstanding.target)
+    }
+
+    @Test
+    fun memoryEntriesAreAvailableForDisplayInTheMemoryScreen() {
+        val memory = AuraMemoryEngine(InMemoryMemoryStore())
+        memory.learnFromExplicitInstruction("tap means open")
+        memory.remember(
+            type = "pattern",
+            category = "implicit",
+            value = "open facebook",
+            source = "SYSTEM",
+            confidence = 0.87f,
+            matchText = "tap facebook"
+        )
+
+        val entries = memory.allMemory()
+
+        assertTrue(entries.isNotEmpty())
+        assertTrue(entries.any { it.type == "application_alias" || it.category == "implicit" })
+        assertTrue(entries.any { it.matchText == "tap" || it.matchText == "tap facebook" })
     }
 }
