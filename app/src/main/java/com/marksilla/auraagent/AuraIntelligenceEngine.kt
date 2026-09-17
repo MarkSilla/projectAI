@@ -439,7 +439,7 @@ class AuraResearchEngine {
                 val left = claims[i]
                 val right = claims[j]
                 if (left.second != right.second && left.second.isNotBlank() && right.second.isNotBlank()) {
-                    conflicts.add(left to right)
+                    conflicts.add(left.second to right.second)
                 }
             }
         }
