@@ -351,9 +351,9 @@ class AuraMemoryEngine(
     fun detectExplicitLearningInstruction(input: String): Pair<String, String>? {
         val normalized = input.lowercase(Locale.ROOT)
         val patterns = listOf(
-            Regex("(?:kapag|when)\\s+(?:sinabi|say)\\s+(?:kong|i)\\s+['\"]?([a-z0-9\\s]+)['\"]?\\s*,?\\s*(?:ibig|means|mean|meaning)\\s+(?:ay|is|to|na)\\s+([a-z_]+)") ,
+            Regex("(?:kapag|when)\\s+(?:sinabi|say)\\s+(?:kong|i)\\s+['\"]?([a-z0-9\\s]+?)['\"]?\\s*(?:ibig|means|mean|meaning)\\s+(?:ay|is|to|na)?\\s*([a-z_]+)") ,
             Regex("(?:remember|save|tandaan)\\s+(?:that|na)\\s+(?:i|ako)\\s+(?:prefer|prefer ko|mas gusto ko)\\s+([a-z0-9\\s]+)") ,
-            Regex("(?:when i say|kapag sinabi kong)\\s+['\"]?([a-z0-9\\s]+)['\"]?\\s*(?:it means|ibig sabihin|ibig sabihin ay|means)\\s+([a-z_]+)")
+            Regex("(?:when i say|kapag sinabi kong)\\s+['\"]?([a-z0-9\\s]+?)['\"]?\\s*(?:it means|ibig sabihin|ibig sabihin ay|means|meaning)\\s+(?:ay|is|to|na)?\\s*([a-z_]+)")
         )
 
         for (pattern in patterns) {
@@ -362,6 +362,26 @@ class AuraMemoryEngine(
             val meaning = match.groupValues.getOrNull(2)?.trim() ?: continue
             if (term.isNotBlank() && meaning.isNotBlank()) {
                 return term to meaning.uppercase(Locale.ROOT)
+            }
+        }
+
+        val directMarker = when {
+            normalized.contains("kapag sinabi kong") -> "kapag sinabi kong"
+            normalized.contains("when i say") -> "when i say"
+            else -> null
+        }
+
+        if (directMarker != null) {
+            val remainder = normalized.substringAfter(directMarker, "")
+                .replace(Regex("^(?:na|ay|is|to)?\\s+"), "")
+                .trim()
+            val split = remainder.split(Regex("\\s+(?:ibig sabihin|ibig sabihin ay|it means|means|meaning)\\s+(?:ay|is|to|na)?\\s+"), limit = 2)
+            if (split.size == 2) {
+                val term = split[0].replace(Regex("['\"]"), "").trim()
+                val meaning = split[1].replace(Regex("['\"]"), "").trim()
+                if (term.isNotBlank() && meaning.isNotBlank()) {
+                    return term to meaning.uppercase(Locale.ROOT)
+                }
             }
         }
 
@@ -555,11 +575,11 @@ class AuraIntelligenceEngine(
             weatherSignals.any { memoryAware.contains(it) } -> AuraIntent.GET_WEATHER
             summarizeSignals.any { memoryAware.contains(it) } -> AuraIntent.SUMMARIZE
             compareSignals.any { memoryAware.contains(it) } -> AuraIntent.COMPARE
+            requiresCurrentInformation || requiresWebResearch -> AuraIntent.SEARCH_WEB
             calcSignals.any { memoryAware.contains(it) } -> AuraIntent.CALCULATE
             memoryAware.contains("take me to") || memoryAware.contains("navigate to") || memoryAware.contains("map") -> AuraIntent.NAVIGATE
             memoryAware.contains("create note") || memoryAware.contains("write note") -> AuraIntent.CREATE_NOTE
             memoryAware.contains("read note") || memoryAware.contains("open note") -> AuraIntent.READ_NOTE
-            requiresCurrentInformation || requiresWebResearch -> AuraIntent.SEARCH_WEB
             memoryAware.contains("who is") || memoryAware.contains("what is") || memoryAware.contains("how old") || memoryAware.contains("when was") || memoryAware.contains("why ") -> AuraIntent.ANSWER_QUESTION
             rememberSignals.any { memoryAware.contains(it) } -> AuraIntent.REMEMBER_INFORMATION
             else -> AuraIntent.UNKNOWN
