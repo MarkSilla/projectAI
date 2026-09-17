@@ -12,7 +12,10 @@ class LocalLLMTest {
         val filesDir = File("/tmp/aura-test")
         val resolved = config.resolvedModelPath(filesDir)
 
-        assertEquals(File("/tmp/aura-test/models/qwen2.5-0.5b-instruct-q4_k_m.gguf"), resolved)
+        assertEquals(
+            File("/tmp/aura-test/models/qwen2.5-0.5b-instruct-q4_k_m.gguf"),
+            resolved
+        )
     }
 
     @Test

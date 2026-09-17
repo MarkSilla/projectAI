@@ -6,12 +6,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private const val DEFAULT_MODEL_FILENAME = "model.gguf"
+private const val PREFERRED_QWEN_MODEL_FILENAME = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
 
 private fun preferredModelCandidates(): List<String> = listOf(
+    PREFERRED_QWEN_MODEL_FILENAME,
     DEFAULT_MODEL_FILENAME
 )
 
 private fun preferredAssetCandidates(): List<String> = listOf(
+    "models/$PREFERRED_QWEN_MODEL_FILENAME",
     "models/$DEFAULT_MODEL_FILENAME"
 )
 
@@ -79,10 +82,8 @@ data class LocalLLMConfig(
             return File(explicit)
         }
 
-        return File(
-            File(baseDir, "models"),
-            DEFAULT_MODEL_FILENAME
-        )
+        val defaultDir = File(baseDir, "models")
+        return File(defaultDir, PREFERRED_QWEN_MODEL_FILENAME)
     }
 }
 
@@ -234,12 +235,13 @@ class LocalLLMRuntime(
             .filter { it.isFile }
             .toList()
 
-        // Prefer model.gguf.
+        // Prefer the bundled Qwen model, then the generic fallback.
         val preferred = nestedFiles
             .sortedBy { file ->
                 when (file.name) {
-                    DEFAULT_MODEL_FILENAME -> 0
-                    else -> 1
+                    PREFERRED_QWEN_MODEL_FILENAME -> 0
+                    DEFAULT_MODEL_FILENAME -> 1
+                    else -> 2
                 }
             }
             .firstOrNull {
@@ -267,7 +269,8 @@ class LocalLLMRuntime(
                 currentStatus =
                     "No valid GGUF model found at " +
                         "${modelFile.absolutePath}. " +
-                        "Add model.gguf under " +
+                        "Add a compatible .gguf file such as " +
+                        "${PREFERRED_QWEN_MODEL_FILENAME} under " +
                         "app/src/main/assets/models/."
 
                 modelLoaded = false
