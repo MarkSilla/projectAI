@@ -351,9 +351,9 @@ class AuraMemoryEngine(
     fun detectExplicitLearningInstruction(input: String): Pair<String, String>? {
         val normalized = input.lowercase(Locale.ROOT)
         val patterns = listOf(
-            Regex("(?:kapag|when)\\s+(?:sinabi|say)\\s+(?:kong|i)\\s+['\"]?([a-z0-9\\s]+?)['\"]?\\s*(?:ibig|means|mean|meaning)\\s+(?:ay|is|to|na)?\\s*([a-z_]+)") ,
-            Regex("(?:remember|save|tandaan)\\s+(?:that|na)\\s+(?:i|ako)\\s+(?:prefer|prefer ko|mas gusto ko)\\s+([a-z0-9\\s]+)") ,
-            Regex("(?:when i say|kapag sinabi kong)\\s+['\"]?([a-z0-9\\s]+?)['\"]?\\s*(?:it means|ibig sabihin|ibig sabihin ay|means|meaning)\\s+(?:ay|is|to|na)?\\s*([a-z_]+)")
+            Regex("(?:when\\s+(?:i\\s+)?say|kapag\\s+sinabi\\s+kong|kapag\\s+sinabi\\s+ko)\\s+['\"]?([a-z0-9\\s-]+?)['\"]?\\s*(?:it\\s+means|ibig\\s+sabihin(?:\\s+ay)?|means|mean|meaning)\\s+(?:ay\\s+|is\\s+|to\\s+|na\\s+)?([a-z_]+)") ,
+            Regex("(?:^|\\b)([a-z0-9][a-z0-9\\s-]*?)\\s+(?:means|mean|meaning|it\\s+means|ibig\\s+sabihin(?:\\s+ay)?)\\s+(?:ay\\s+|is\\s+|to\\s+|na\\s+)?([a-z_]+)\\b") ,
+            Regex("(?:remember|save|tandaan)\\s+(?:that|na)\\s+(?:i|ako)\\s+(?:prefer|prefer ko|mas gusto ko)\\s+([a-z0-9\\s]+)")
         )
 
         for (pattern in patterns) {
@@ -541,7 +541,7 @@ class AuraIntelligenceEngine(
         val appMatch = detectAppReference(memoryAware)
 
         val openSignals = listOf(
-            "open ", "launch ", "start ", "run ", "buksan ", "goto ", "go to ", "punta ka sa ", "open app ", "paki buksan ", "open mo ", "pindot "
+            "open ", "launch ", "start ", "run ", "buksan ", "goto ", "go to ", "punta ka sa ", "open app ", "paki buksan ", "open mo "
         )
         val rememberSignals = listOf("remember ", "save that ", "note that ", "keep in mind ")
         val dateSignals = listOf("what date", "what day", "date today", "today's date")
@@ -688,19 +688,29 @@ class AuraIntelligenceEngine(
         val memoryMatches = memory
             .searchMemory(working)
             .filter { it.matchText != null || it.category.contains("alias") || it.type.contains("learned") }
-            .sortedByDescending { it.matchText?.length ?: 0 }
+            .sortedByDescending { maxOf(it.value.length, it.matchText?.length ?: 0) }
 
         for (entry in memoryMatches) {
-            val alias = entry.matchText?.trim() ?: continue
-            if (alias.isBlank()) continue
-            val aliasLower = alias.lowercase(Locale.ROOT)
-            val replacement = when {
-                entry.type.contains("learned") && entry.value.contains("OPEN") -> "open"
-                entry.type.contains("application_alias") && entry.category.contains("alias") -> entry.value.lowercase(Locale.ROOT)
-                entry.value.contains("OPEN") -> "open"
-                else -> entry.value.lowercase(Locale.ROOT)
+            val alias = when {
+                entry.type.contains("application_alias") || entry.category.contains("alias") -> entry.value.trim()
+                entry.matchText != null -> entry.matchText!!.trim()
+                else -> entry.value.trim()
             }
-            if (replacement.isNotBlank() && working.contains(aliasLower)) {
+            val replacement = when {
+                entry.type.contains("application_alias") || entry.category.contains("alias") ->
+                    when {
+                        entry.matchText.equals("OPEN", ignoreCase = true) || entry.matchText.equals("OPEN_APP", ignoreCase = true) -> "open"
+                        entry.matchText.equals("NAVIGATE", ignoreCase = true) || entry.matchText.equals("GO_TO", ignoreCase = true) -> "go to"
+                        else -> entry.matchText?.trim().orEmpty()
+                    }
+                entry.value.equals("OPEN", ignoreCase = true) || entry.value.equals("OPEN_APP", ignoreCase = true) -> "open"
+                entry.value.equals("NAVIGATE", ignoreCase = true) || entry.value.equals("GO_TO", ignoreCase = true) -> "go to"
+                else -> entry.value.trim()
+            }
+
+            val aliasLower = alias.lowercase(Locale.ROOT)
+            if (aliasLower.isBlank() || replacement.isBlank()) continue
+            if (working.contains(aliasLower)) {
                 working = working.replace(aliasLower, replacement)
             }
         }

@@ -48,9 +48,18 @@ class AuraCommandUnderstanding(
             }.getOrNull()
 
         if (!parserTarget.isNullOrBlank()) {
+            val canonicalTarget = installedApps
+                .firstOrNull { app ->
+                    val normalizedAppName = app.name.trim().lowercase(Locale.US).replace(Regex("\\s+"), " ")
+                    val normalizedParserTarget = parserTarget.trim().lowercase(Locale.US).replace(Regex("\\s+"), " ")
+                    normalizedAppName == normalizedParserTarget
+                }
+                ?.name
+                ?: parserTarget
+
             return CommandUnderstanding(
                 intent = AuraCommandIntent.OPEN_APP,
-                target = parserTarget,
+                target = canonicalTarget,
                 confidence = 0.99f,
                 source = CommandUnderstandingSource.FAST_PARSER
             )
@@ -126,6 +135,13 @@ fun shouldConfirmOpenApp(
 ): Boolean =
     decideOpenAppAction(understanding) == CommandAction.CONFIRM
 
+private fun normalizeLearnedAction(value: String): String =
+    when {
+        value.equals("OPEN", ignoreCase = true) || value.equals("OPEN_APP", ignoreCase = true) -> "open"
+        value.equals("NAVIGATE", ignoreCase = true) || value.equals("GO_TO", ignoreCase = true) -> "go to"
+        else -> value.trim()
+    }
+
 fun resolveLearnedCommandAliases(
     command: String,
     memory: AuraMemoryEngine
@@ -138,30 +154,34 @@ fun resolveLearnedCommandAliases(
     val aliasEntries = memory
         .searchMemory(input)
         .filter { entry ->
-            val matchText = entry.matchText?.trim().orEmpty()
-            matchText.isNotBlank() && (
+            val hasAliasValue = entry.value.trim().isNotBlank()
+            val hasMeaning = entry.matchText?.trim().isNullOrBlank().not()
+            hasAliasValue && hasMeaning && (
                 entry.type.contains("learned") ||
                     entry.type.contains("application_alias") ||
                     entry.category.contains("alias") ||
                     entry.category.contains("learned")
                 )
         }
-        .sortedByDescending { it.matchText?.length ?: 0 }
+        .sortedByDescending { maxOf(it.value.length, it.matchText?.length ?: 0) }
 
     var rewritten = input
     for (entry in aliasEntries) {
-        val alias = entry.matchText?.trim() ?: continue
-        val aliasLower = alias.lowercase(Locale.US)
-        if (aliasLower.isBlank()) continue
-
-        val canonical = when {
-            entry.value.equals("OPEN", ignoreCase = true) -> "open"
-            entry.value.equals("OPEN_APP", ignoreCase = true) -> "open"
-            entry.value.equals("NAVIGATE", ignoreCase = true) -> "go to"
+        val alias = when {
+            entry.type.contains("application_alias") || entry.category.contains("alias") -> entry.value.trim()
+            entry.matchText != null -> entry.matchText!!.trim()
             else -> entry.value.trim()
         }
 
-        if (canonical.isBlank()) continue
+        val canonical = when {
+            entry.type.contains("application_alias") || entry.category.contains("alias") ->
+                normalizeLearnedAction(entry.matchText?.trim().orEmpty())
+            else ->
+                normalizeLearnedAction(entry.value.trim())
+        }
+
+        val aliasLower = alias.lowercase(Locale.US)
+        if (aliasLower.isBlank() || canonical.isBlank()) continue
 
         val aliasPattern = Regex("(?i)(^|\\s)${Regex.escape(aliasLower)}($|\\s)")
         rewritten = aliasPattern.replace(rewritten) { match ->
